@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFnsV3';
+import { Analytics } from '@vercel/analytics/react';
 import App from './App';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
@@ -20,6 +21,7 @@ root.render(
           <AuthProvider>
             <NotificationProvider>
               <App />
+              <Analytics />
             </NotificationProvider>
           </AuthProvider>
         </LocalizationProvider>
