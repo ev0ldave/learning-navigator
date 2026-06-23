@@ -36,11 +36,9 @@ const isEmailAllowed = (email) => {
   
   const emailLower = email.toLowerCase();
   
-  // Check if it's a test account in development
-  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
-    if (TEST_ACCOUNTS.map(e => e.toLowerCase()).includes(emailLower)) {
-      return true;
-    }
+  // Test accounts are always allowed (configured via environment variables)
+  if (TEST_ACCOUNTS.map(e => e.toLowerCase()).includes(emailLower)) {
+    return true;
   }
   
   // Check if email is from allowed domain
