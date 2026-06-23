@@ -37,8 +37,8 @@ const Login = () => {
 
   const handleGoogleLogin = () => {
     // OAuth redirects must go directly to the backend server, not through the React proxy
-    // In production, VITE_API_URL must be set. In development, fall back to localhost.
-    const apiUrl = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? 'https://cmnav-backend.onrender.com/api' : 'http://localhost:5001/api');
+    // VITE_API_URL is set via Vercel environment variables for production
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
     window.location.href = `${apiUrl}/auth/google`;
   };
 

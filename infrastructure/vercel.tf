@@ -18,20 +18,21 @@ resource "vercel_project" "frontend" {
   # Build settings
   build_command    = "npm run build"
   output_directory = "build"
+}
 
-  # Environment variables
-  environment = [
-    {
-      key    = "VITE_API_URL"
-      value  = "https://${var.project_name}-backend.onrender.com/api"
-      target = ["production", "preview"]
-    },
-    {
-      key    = "VITE_GOOGLE_CLIENT_ID"
-      value  = var.google_client_id
-      target = ["production", "preview"]
-    }
-  ]
+# Environment variables as separate resources (more reliable than inline)
+resource "vercel_project_environment_variable" "api_url" {
+  project_id = vercel_project.frontend.id
+  key        = "VITE_API_URL"
+  value      = "https://${var.project_name}-backend.onrender.com/api"
+  target     = ["production", "preview"]
+}
+
+resource "vercel_project_environment_variable" "google_client_id" {
+  project_id = vercel_project.frontend.id
+  key        = "VITE_GOOGLE_CLIENT_ID"
+  value      = var.google_client_id
+  target     = ["production", "preview"]
 }
 
 # Production deployment
