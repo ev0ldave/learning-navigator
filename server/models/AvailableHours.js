@@ -84,7 +84,6 @@ weeklyHoursSchema.methods.getAvailabilityForDay = function(dayNum) {
   return this[days[dayNum]];
 };
 
-// Index for efficient queries
-weeklyHoursSchema.index({ user: 1 });
+// Note: user field already indexed via unique: true
 
 module.exports = mongoose.model('WeeklyHours', weeklyHoursSchema);
