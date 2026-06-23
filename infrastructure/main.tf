@@ -2,24 +2,24 @@
 # MongoDB Atlas (Free Tier) + Render (Free Tier) + Vercel (Free Tier)
 
 terraform {
-  required_version = ">= 1.0"
+  required_version = ">= 1.5, < 2.0"
 
   required_providers {
     mongodbatlas = {
       source  = "mongodb/mongodbatlas"
-      version = "~> 1.12"
+      version = "~> 1.15"
     }
     render = {
       source  = "render-oss/render"
-      version = "~> 1.1"
+      version = "~> 1.3"
     }
     vercel = {
       source  = "vercel/vercel"
-      version = "~> 1.0"
+      version = "~> 2.0"
     }
     random = {
       source  = "hashicorp/random"
-      version = "~> 3.5"
+      version = "~> 3.6"
     }
   }
 }
