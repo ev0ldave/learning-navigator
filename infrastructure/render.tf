@@ -1,0 +1,88 @@
+# =============================================================================
+# Render Free Tier Configuration (Backend API)
+# =============================================================================
+
+# Backend Web Service
+resource "render_web_service" "backend" {
+  name    = "${var.project_name}-backend"
+  plan    = "free" # Free tier
+  region  = "oregon"
+  runtime = "node"
+
+  # GitHub repository configuration
+  repo_url = "https://github.com/${var.github_repo}"
+  branch   = var.github_branch
+
+  # Build configuration
+  build_command = "npm install"
+  start_command = "npm start"
+  root_dir      = "" # Root of repo (server/index.js is main)
+
+  # Environment variables
+  env_vars = {
+    NODE_ENV = {
+      value = "production"
+    }
+    PORT = {
+      value = "10000" # Render assigns port via PORT env var
+    }
+    MONGODB_URI = {
+      value = "mongodb+srv://${var.mongodb_username}:${random_password.mongodb_password.result}@${replace(mongodbatlas_cluster.main.connection_strings[0].standard_srv, "mongodb+srv://", "")}/${var.mongodb_database_name}?retryWrites=true&w=majority"
+    }
+    SESSION_SECRET = {
+      value = random_password.session_secret.result
+    }
+    JWT_SECRET = {
+      value = random_password.jwt_secret.result
+    }
+    JWT_EXPIRES_IN = {
+      value = "7d"
+    }
+    GOOGLE_CLIENT_ID = {
+      value = var.google_client_id
+    }
+    GOOGLE_CLIENT_SECRET = {
+      value = var.google_client_secret
+    }
+    GOOGLE_CALLBACK_URL = {
+      value = "https://${var.project_name}-backend.onrender.com/api/auth/google/callback"
+    }
+    EMAIL_HOST = {
+      value = var.email_host
+    }
+    EMAIL_PORT = {
+      value = tostring(var.email_port)
+    }
+    EMAIL_USER = {
+      value = var.email_user
+    }
+    EMAIL_PASSWORD = {
+      value = var.email_password
+    }
+    EMAIL_FROM = {
+      value = var.email_from
+    }
+    ADMIN_EMAIL = {
+      value = var.admin_email
+    }
+    ALLOWED_DOMAIN = {
+      value = var.allowed_domain
+    }
+    # CLIENT_URL will be set after Vercel deployment
+    CLIENT_URL = {
+      value = "https://${var.project_name}.vercel.app"
+    }
+  }
+
+  # Health check
+  health_check_path = "/api/health"
+
+  # Auto deploy on push
+  auto_deploy = true
+}
+
+# Output the backend URL
+output "render_backend_url" {
+  description = "Render backend service URL"
+  value       = "https://${render_web_service.backend.name}.onrender.com"
+}

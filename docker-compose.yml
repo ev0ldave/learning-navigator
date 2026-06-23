@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: learning-navigator-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-adminpassword}
+      MONGO_INITDB_DATABASE: learning-navigator
+    volumes:
+      - mongodb_data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    ports:
+      - "27017:27017"
+    networks:
+      - learning-navigator-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API Server
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: learning-navigator-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 5001
+      MONGODB_URI: mongodb://${MONGO_USERNAME:-admin}:${MONGO_PASSWORD:-adminpassword}@mongodb:27017/learning-navigator?authSource=admin
+      SESSION_SECRET: ${SESSION_SECRET:-your-session-secret}
+      JWT_SECRET: ${JWT_SECRET:-your-jwt-secret}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:5001/api/auth/google/callback}
+      EMAIL_HOST: ${EMAIL_HOST:-smtp.gmail.com}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USER: ${EMAIL_USER}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD}
+      EMAIL_FROM: ${EMAIL_FROM:-Learning Navigator <noreply@learningnavigator.com>}
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-trlandrew@students.highline.edu}
+      ALLOWED_DOMAIN: ${ALLOWED_DOMAIN:-students.highline.edu}
+      TEST_STUDENT_EMAIL_1: ${TEST_STUDENT_EMAIL_1:-1411andrew@gmail.com}
+      TEST_STUDENT_EMAIL_2: ${TEST_STUDENT_EMAIL_2:-ev0ldave@gmail.com}
+      TEST_ADMIN_EMAIL: ${TEST_ADMIN_EMAIL:-trlandrew@students.highline.edu}
+    ports:
+      - "5001:5001"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - learning-navigator-network
+    volumes:
+      - ./server:/app/server
+      - /app/node_modules
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend React App (Development)
+  frontend:
+    image: node:20-alpine
+    container_name: learning-navigator-frontend
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install && npm start"
+    environment:
+      NODE_ENV: development
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:5001/api}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - learning-navigator-network
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+
+networks:
+  learning-navigator-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local

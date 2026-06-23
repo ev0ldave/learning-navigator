@@ -1,0 +1,59 @@
+# =============================================================================
+# Terraform Variables Example
+# Copy this file to terraform.tfvars and fill in your values
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Provider Authentication
+# -----------------------------------------------------------------------------
+
+# MongoDB Atlas API Keys
+# Create at: https://cloud.mongodb.com/v2#/org/<org_id>/access/apiKeys
+mongodb_atlas_public_key  = "your-atlas-public-key"
+mongodb_atlas_private_key = "your-atlas-private-key"
+mongodb_atlas_org_id      = "your-atlas-org-id"
+
+# Render API Key
+# Create at: https://dashboard.render.com/u/settings#api-keys
+render_api_key  = "your-render-api-key"
+render_owner_id = "your-render-user-or-team-id"
+
+# Vercel API Token
+# Create at: https://vercel.com/account/tokens
+vercel_api_token = "your-vercel-api-token"
+vercel_team_id   = null  # Optional: set if deploying to a team
+
+# -----------------------------------------------------------------------------
+# Project Configuration
+# -----------------------------------------------------------------------------
+
+project_name = "learning-navigator"
+environment  = "production"
+
+# GitHub Repository (format: owner/repo)
+github_repo   = "your-username/student_tracker"
+github_branch = "main"
+
+# -----------------------------------------------------------------------------
+# Application Configuration
+# -----------------------------------------------------------------------------
+
+# Google OAuth (from Google Cloud Console)
+google_client_id     = "your-google-client-id.apps.googleusercontent.com"
+google_client_secret = "your-google-client-secret"
+
+# Email Configuration (Gmail SMTP)
+email_host     = "smtp.gmail.com"
+email_port     = 587
+email_user     = "your-email@gmail.com"
+email_password = "your-app-password"  # Use Gmail App Password, not account password
+email_from     = "Learning Navigator <your-email@gmail.com>"
+
+# Admin Configuration
+admin_email    = "admin@example.com"
+allowed_domain = "students.highline.edu"
+
+# MongoDB Configuration (optional overrides)
+mongodb_region        = "US_WEST_2"  # AWS region for free tier
+mongodb_database_name = "learning-navigator"
+mongodb_username      = "app_user"

@@ -1,0 +1,261 @@
+# =============================================================================
+# Learning Navigator - Application Requirements
+# =============================================================================
+
+App Name: Learning Navigator
+Version: 1.0.0
+
+# =============================================================================
+# User Roles & Permissions
+# =============================================================================
+
+Administrator Role:
+    - manages user accounts and permissions
+    - has all permissions of a learning navigator
+    - oversees the overall functioning of the application
+
+Student Role:
+    - schedules meetings with learning navigator with initial meeting being a weekly recurrence on the same day and time each week
+    - reschedules or cancels their meetings in a calendar view and send notifications to the learning navigator of the change
+
+Learning Navigator Role:
+    - they can manage student meetings
+    - they can view and edit their own profile information
+    - create notes on students
+    - during a learning navigatoring session, they can do private notes on the student that only they can see as well as shared notes that are emailed to the student after the session
+    - when students book a learning navigatoring session, they will appear on the learning navigator's calendar and the learning navigator will receive a notification
+    - learning navigators can view their schedule in a calendar view and manage their availability
+    - learning navigators can reschedule or cancel meetings with students in a calendar view; this will notify the student of the change
+    - learning navigators can view and manage their students' profiles and notes
+    - can generate reports on their learning navigatoring sessions, including student progress and session history for individuals or groups of students
+
+# =============================================================================
+# Features
+# =============================================================================
+
+Authentication/Authorization:
+    - implement secure authentication using Google OAuth for students to create accounts and log in
+    - ensure that only authorized users (students and learning navigators) can access their respective features and data
+    - implement role-based access control to differentiate between student and learning navigator functionalities
+    - only accounts from students.highline.edu should be allowed to register
+    - trlandrew@students.highline.edu should be the only account that can register as administrator
+    - allow login from local test accounts for development and testing purposes, but ensure that these accounts are not used in production
+    - JWT-based session management with configurable expiration (default: 7 days)
+    - Passport.js for authentication strategy management
+
+Calendar Integration:
+    - integrate with Google Calendar API to allow students and learning navigators to manage their schedules and appointments
+    - ensure that scheduled meetings are automatically added to the respective Google Calendars of students and learning navigators
+    - provide a calendar view for both students and learning navigators to easily manage their appointments and availability
+    - FullCalendar library for interactive calendar UI with day, week, and month views
+
+Notifications:
+    - implement email notifications for students and learning navigators when meetings are scheduled, rescheduled, or canceled
+    - ensure that notifications include relevant details such as date, time, and any changes made to the meeting
+    - provide an option for users to customize their notification preferences (e.g., receive notifications via email or in-app)
+    - in-app notification panel with real-time updates
+
+Profile Management:
+    - allow students and learning navigators to view and edit their profile information, including name, email, and profile picture
+    - ensure that profile updates are reflected across the application and in notifications
+    - provide a secure way for users to manage their account settings and preferences
+
+Notes Management:
+    - allow learning navigators to create and manage notes on students, including private notes that only they can see and shared notes that are emailed to the student after a session
+    - ensure that notes are securely stored and accessible only to authorized users
+    - provide a user-friendly interface for learning navigators to create, edit, and view notes on their students
+
+Reporting:
+    - allow learning navigators to generate reports on their learning navigatoring sessions, including student progress and session history for individuals or groups of students
+    - provide options for exporting reports in various formats (e.g., PDF, Excel)
+    - ensure that reports are generated accurately and include relevant data for analysis and tracking of student progress
+    - PDFKit for PDF report generation
+
+# =============================================================================
+# Testing
+# =============================================================================
+
+Testing:
+    - implement unit tests for all major functionalities, including authentication, calendar integration, notifications, profile management, notes management, and reporting
+    - ensure that tests cover both positive and negative scenarios to validate the robustness of the application
+    - use Jest for unit testing the frontend and backend functionalities
+    - React Testing Library for component testing
+    - Supertest for API endpoint testing
+    - MongoDB Memory Server for isolated database testing
+    - create 2 local student accounts for development and testing purposes, ensuring that these accounts are not used in production:
+        - Test Student Account:
+            - Email: 1411andrew@gmail.com
+        - Test Student Account 2:
+            - Email: ev0ldave@gmail.com
+    - create a local administrator account for development and testing purposes, ensuring that this account is not used in production:
+        - Test Administrator Account:
+            - Email: trlandrew@students.highline.edu
+
+# =============================================================================
+# Tech Stack
+# =============================================================================
+
+Frontend:
+    - React.js 18.x for building the user interface and managing state
+    - Material-UI (MUI) 5.x for component library and theming
+    - React Router 6.x for client-side routing
+    - FullCalendar 6.x for calendar views (day, week, month)
+    - MUI X Date Pickers for date/time selection
+    - Axios for HTTP requests
+    - date-fns for date manipulation
+
+Backend:
+    - Node.js with Express.js 4.x for handling server-side logic and API endpoints
+    - Mongoose 7.x for MongoDB object modeling
+    - Passport.js for authentication (Google OAuth 2.0 and local strategy)
+    - express-validator for request validation
+    - Helmet for security headers
+    - CORS for cross-origin resource sharing
+
+Database:
+    - MongoDB for storing user data, meetings, notes, and reports
+    - MongoDB Atlas (M0 free tier) for cloud database hosting
+
+Authentication:
+    - Google OAuth 2.0 for secure user authentication and account management
+    - Passport.js with passport-google-oauth20 strategy
+    - JWT (jsonwebtoken) for session tokens
+    - bcryptjs for password hashing (local accounts)
+
+Calendar Integration:
+    - Google Calendar API (googleapis) for managing schedules and appointments
+
+Notifications:
+    - Nodemailer for sending email notifications to users
+    - Gmail SMTP for email delivery
+
+Report Generation:
+    - PDFKit for PDF report generation
+
+# =============================================================================
+# Deployment
+# =============================================================================
+
+Local Development:
+    - Docker containers for easy deployment and scalability
+    - docker-compose for managing multi-container applications (MongoDB, server, client)
+    - Dockerfile.server for Node.js backend container
+    - Dockerfile.client for React frontend container
+    - Nodemon for development hot-reloading
+    - Concurrently for running server and client simultaneously
+
+Cloud Deployment (Infrastructure as Code with Terraform):
+    - MongoDB Atlas (M0 free tier) for cloud database
+        - Automatic project and cluster provisioning
+        - Database user creation with appropriate roles
+        - IP access list configuration for dynamic cloud IPs
+    - Render for backend API hosting (free tier)
+        - Automatic deployment from GitHub repository
+        - Environment variable management
+        - Health checks and auto-scaling
+    - Vercel for frontend hosting (free tier)
+        - Automatic deployment from GitHub repository
+        - Edge network CDN
+        - Environment variable management
+
+Infrastructure Configuration:
+    - Terraform providers: mongodbatlas, render, vercel
+    - Required API keys/tokens:
+        - MongoDB Atlas: Organization API key with "Organization Project Creator" role
+        - Render: API key and owner ID (user or team)
+        - Vercel: API token (and optional team ID)
+    - Configuration files:
+        - infrastructure/main.tf - Provider configuration
+        - infrastructure/mongodb-atlas.tf - MongoDB Atlas resources
+        - infrastructure/render.tf - Render backend service
+        - infrastructure/vercel.tf - Vercel frontend deployment
+        - infrastructure/variables.tf - Input variable definitions
+        - infrastructure/outputs.tf - Output values
+        - infrastructure/terraform.tfvars.example - Example configuration template
+
+Environment Variables:
+    Backend (server):
+        - NODE_ENV: production/development
+        - PORT: Server port (default: 5001 local, 10000 Render)
+        - MONGODB_URI: MongoDB connection string
+        - SESSION_SECRET: Express session secret
+        - JWT_SECRET: JWT signing secret
+        - JWT_EXPIRES_IN: Token expiration (default: 7d)
+        - GOOGLE_CLIENT_ID: Google OAuth client ID
+        - GOOGLE_CLIENT_SECRET: Google OAuth client secret
+        - GOOGLE_CALLBACK_URL: OAuth callback URL
+        - EMAIL_HOST: SMTP host (smtp.gmail.com)
+        - EMAIL_PORT: SMTP port (587)
+        - EMAIL_USER: SMTP username
+        - EMAIL_PASSWORD: SMTP password (app password)
+        - EMAIL_FROM: Sender email address
+        - ADMIN_EMAIL: Administrator email
+        - ALLOWED_DOMAIN: Allowed email domain (students.highline.edu)
+        - CLIENT_URL: Frontend URL for CORS
+
+    Frontend (client):
+        - REACT_APP_API_URL: Backend API URL
+        - REACT_APP_GOOGLE_CLIENT_ID: Google OAuth client ID
+
+# =============================================================================
+# Project Structure
+# =============================================================================
+
+/
+├── client/                    # React frontend application
+│   ├── public/               # Static assets
+│   ├── src/
+│   │   ├── components/       # Reusable UI components
+│   │   │   ├── layout/       # Layout components (MainLayout)
+│   │   │   ├── meetings/     # Meeting-related components
+│   │   │   └── notifications/# Notification components
+│   │   ├── contexts/         # React contexts (Auth, Notifications)
+│   │   ├── pages/            # Page components
+│   │   │   └── admin/        # Admin-specific pages
+│   │   ├── services/         # API service layer
+│   │   ├── App.js            # Main application component
+│   │   ├── index.js          # Application entry point
+│   │   └── theme.js          # MUI theme configuration
+│   └── package.json
+├── server/                    # Node.js backend application
+│   ├── config/               # Configuration (Passport)
+│   ├── middleware/           # Express middleware (auth)
+│   ├── models/               # Mongoose models
+│   │   ├── User.js           # User model
+│   │   ├── Meeting.js        # Meeting model
+│   │   ├── Note.js           # Note model
+│   │   ├── Notification.js   # Notification model
+│   │   ├── Report.js         # Report model
+│   │   └── AvailableHours.js # Availability model
+│   ├── routes/               # API routes
+│   │   ├── auth.js           # Authentication routes
+│   │   ├── users.js          # User management routes
+│   │   ├── meetings.js       # Meeting routes
+│   │   ├── notes.js          # Notes routes
+│   │   ├── notifications.js  # Notification routes
+│   │   ├── reports.js        # Report routes
+│   │   ├── calendar.js       # Calendar routes
+│   │   └── availability.js   # Availability routes
+│   ├── services/             # Business logic services
+│   │   ├── calendarService.js    # Google Calendar integration
+│   │   ├── notificationService.js # Email notifications
+│   │   └── pdfService.js         # PDF report generation
+│   ├── tests/                # Test files
+│   ├── utils/                # Utility functions
+│   └── index.js              # Server entry point
+├── infrastructure/            # Terraform IaC
+│   ├── main.tf               # Provider configuration
+│   ├── mongodb-atlas.tf      # MongoDB Atlas resources
+│   ├── render.tf             # Render deployment
+│   ├── vercel.tf             # Vercel deployment
+│   ├── variables.tf          # Variable definitions
+│   ├── outputs.tf            # Output values
+│   └── terraform.tfvars.example # Example configuration
+├── docker/                    # Docker configuration
+│   └── mongo-init.js         # MongoDB initialization script
+├── docker-compose.yml         # Multi-container configuration
+├── Dockerfile.server          # Backend container
+├── Dockerfile.client          # Frontend container
+├── package.json               # Root package.json
+├── .gitignore                 # Git ignore rules
+└── README.md                  # Project documentation
