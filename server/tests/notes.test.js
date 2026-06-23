@@ -57,7 +57,7 @@ beforeEach(async () => {
   const jwt = require('jsonwebtoken');
   navigatorToken = jwt.sign(
     { userId: navigator._id },
-    process.env.JWT_SECRET || 'test-secret',
+    process.env.JWT_SECRET || 'default-jwt-secret',
     { expiresIn: '7d' }
   );
 

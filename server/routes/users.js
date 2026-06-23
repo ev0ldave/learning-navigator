@@ -6,8 +6,12 @@ const {
   isAuthenticated, 
   requireAdmin, 
   requireNavigator,
-  requireOwnershipOrAdmin 
+  requireOwnershipOrAdmin,
+  validateObjectId
 } = require('../middleware/auth');
+
+// Validate ObjectId params
+router.param('id', validateObjectId('id'));
 
 // @route   GET /api/users
 // @desc    Get all users (admin only)

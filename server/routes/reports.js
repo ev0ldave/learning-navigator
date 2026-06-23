@@ -5,8 +5,11 @@ const Report = require('../models/Report');
 const Meeting = require('../models/Meeting');
 const Note = require('../models/Note');
 const User = require('../models/User');
-const { isAuthenticated, requireNavigator } = require('../middleware/auth');
+const { isAuthenticated, requireNavigator, validateObjectId } = require('../middleware/auth');
 const { generateReportPDF } = require('../services/pdfService');
+
+// Validate ObjectId params
+router.param('id', validateObjectId('id'));
 
 // @route   GET /api/reports
 // @desc    Get all reports for current user

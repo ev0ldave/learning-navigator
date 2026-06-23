@@ -1,5 +1,15 @@
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/User');
+
+// Get JWT secret (fail fast if not configured in production)
+const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret && process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be configured in production');
+  }
+  return secret || 'default-jwt-secret';
+};
 
 // Verify JWT token
 const verifyToken = async (req, res, next) => {
@@ -17,7 +27,7 @@ const verifyToken = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-jwt-secret');
+    const decoded = jwt.verify(token, getJwtSecret());
     
     // Get user from database
     const user = await User.findById(decoded.userId);
@@ -174,6 +184,19 @@ const requireStudentAccess = async (req, res, next) => {
   });
 };
 
+// Validate MongoDB ObjectId in params (for router.param usage)
+const validateObjectId = (paramName = 'id') => {
+  return (req, res, next, value) => {
+    if (!mongoose.Types.ObjectId.isValid(value)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid ${paramName} format`
+      });
+    }
+    next();
+  };
+};
+
 module.exports = {
   verifyToken,
   isAuthenticated,
@@ -182,5 +205,7 @@ module.exports = {
   requireNavigator,
   requireAdmin,
   requireOwnershipOrAdmin,
-  requireStudentAccess
+  requireStudentAccess,
+  validateObjectId,
+  getJwtSecret
 };

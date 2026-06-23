@@ -7,13 +7,17 @@ const WeeklyHours = require('../models/AvailableHours');
 const { 
   isAuthenticated, 
   requireNavigator,
-  requireStudentAccess 
+  requireStudentAccess,
+  validateObjectId
 } = require('../middleware/auth');
 const { sendMeetingNotification } = require('../services/notificationService');
 const { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = require('../services/calendarService');
 const { getPacificDayOfWeek, getPacificComponents, getPacificTimeString } = require('../utils/timezone');
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+// Validate ObjectId params
+router.param('id', validateObjectId('id'));
 
 // @route   GET /api/meetings
 // @desc    Get meetings for current user
