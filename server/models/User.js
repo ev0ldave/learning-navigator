@@ -112,8 +112,7 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Index for better query performance
-userSchema.index({ email: 1 });
+// Index for better query performance (email already indexed via unique: true)
 userSchema.index({ role: 1 });
 userSchema.index({ assignedNavigator: 1 });
 
