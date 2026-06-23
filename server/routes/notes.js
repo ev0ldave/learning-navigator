@@ -7,9 +7,13 @@ const User = require('../models/User');
 const { 
   isAuthenticated, 
   requireNavigator,
-  requireStudentAccess 
+  requireStudentAccess,
+  validateObjectId
 } = require('../middleware/auth');
 const { sendNoteSharedNotification } = require('../services/notificationService');
+
+// Validate ObjectId params
+router.param('id', validateObjectId('id'));
 
 // @route   GET /api/notes
 // @desc    Get notes (filtered by user role)

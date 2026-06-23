@@ -318,7 +318,7 @@ describe('GET /api/meetings/:id', () => {
     const jwt = require('jsonwebtoken');
     const otherToken = jwt.sign(
       { userId: otherStudent._id },
-      process.env.JWT_SECRET || 'test-secret',
+      process.env.JWT_SECRET || 'default-jwt-secret',
       { expiresIn: '7d' }
     );
 
@@ -462,7 +462,7 @@ describe('Meeting Status', () => {
     const jwt = require('jsonwebtoken');
     const navToken = jwt.sign(
       { userId: navigator._id },
-      process.env.JWT_SECRET || 'test-secret',
+      process.env.JWT_SECRET || 'default-jwt-secret',
       { expiresIn: '7d' }
     );
 
@@ -479,7 +479,7 @@ describe('Meeting Status', () => {
     const jwt = require('jsonwebtoken');
     const navToken = jwt.sign(
       { userId: navigator._id },
-      process.env.JWT_SECRET || 'test-secret',
+      process.env.JWT_SECRET || 'default-jwt-secret',
       { expiresIn: '7d' }
     );
 

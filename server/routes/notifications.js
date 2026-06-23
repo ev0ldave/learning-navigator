@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const Notification = require('../models/Notification');
-const { isAuthenticated } = require('../middleware/auth');
+const { isAuthenticated, validateObjectId } = require('../middleware/auth');
+
+// Validate ObjectId params
+router.param('id', validateObjectId('id'));
 
 // @route   GET /api/notifications
 // @desc    Get notifications for current user

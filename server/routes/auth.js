@@ -5,14 +5,14 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
-const { isAuthenticated } = require('../middleware/auth');
+const { isAuthenticated, getJwtSecret } = require('../middleware/auth');
 const { isEmailAllowed, determineRole, TEST_ACCOUNTS } = require('../config/passport');
 
 // Generate JWT token
 const generateToken = (user) => {
   return jwt.sign(
     { userId: user._id, email: user.email, role: user.role },
-    process.env.JWT_SECRET || 'default-jwt-secret',
+    getJwtSecret(),
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
 };
@@ -266,7 +266,7 @@ router.get('/check', async (req, res) => {
     const token = authHeader.split(' ')[1];
     
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-jwt-secret');
+    const decoded = jwt.verify(token, getJwtSecret());
     
     // Get user
     const user = await User.findById(decoded.userId);
