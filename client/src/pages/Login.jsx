@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -18,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 const Login = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { isAuthenticated, loginLocal, register } = useAuth();
   const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -30,6 +31,14 @@ const Login = () => {
     firstName: '',
     lastName: ''
   });
+
+  // Check for auth error from OAuth redirect
+  useEffect(() => {
+    const authError = searchParams.get('error');
+    if (authError === 'auth_failed') {
+      setError('Login failed. Only @students.highline.edu accounts are allowed.');
+    }
+  }, [searchParams]);
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
