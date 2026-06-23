@@ -68,6 +68,9 @@ resource "render_web_service" "backend" {
     ALLOWED_DOMAIN = {
       value = var.allowed_domain
     }
+    ZOOM_LINK = {
+      value = var.zoom_link
+    }
     # CLIENT_URL will be set after Vercel deployment
     CLIENT_URL = {
       value = "https://${var.project_name}.vercel.app"

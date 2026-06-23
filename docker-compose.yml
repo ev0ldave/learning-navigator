@@ -48,6 +48,7 @@ services:
       CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@students.example.edu}
       ALLOWED_DOMAIN: ${ALLOWED_DOMAIN:-students.example.edu}
+      ZOOM_LINK: ${ZOOM_LINK:-}
       TEST_STUDENT_EMAIL_1: ${TEST_STUDENT_EMAIL_1:-student1@example.com}
       TEST_STUDENT_EMAIL_2: ${TEST_STUDENT_EMAIL_2:-student2@example.com}
       TEST_ADMIN_EMAIL: ${TEST_ADMIN_EMAIL:-admin@students.example.edu}
