@@ -9,6 +9,7 @@ import {
   Button,
   List,
   ListItem,
+  ListItemButton,
   ListItemText,
   ListItemAvatar,
   Avatar,
@@ -211,36 +212,40 @@ const Dashboard = () => {
                   {upcomingMeetings.slice(0, 5).map((meeting) => (
                     <ListItem
                       key={meeting._id}
-                      button
-                      onClick={() => navigate(`/meetings/${meeting._id}`)}
-                      sx={{ borderRadius: 1, mb: 1, bgcolor: 'background.default' }}
+                      disablePadding
+                      sx={{ mb: 1 }}
                     >
-                      <ListItemAvatar>
-                        <Avatar
-                          src={isStudent() ? meeting.navigator?.profilePicture : meeting.student?.profilePicture}
-                        >
-                          {isStudent() 
-                            ? meeting.navigator?.firstName?.[0] 
-                            : meeting.student?.firstName?.[0]}
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary={meeting.title}
-                        secondary={
-                          <>
+                      <ListItemButton
+                        onClick={() => navigate(`/meetings/${meeting._id}`)}
+                        sx={{ borderRadius: 1, bgcolor: 'background.default' }}
+                      >
+                        <ListItemAvatar>
+                          <Avatar
+                            src={isStudent() ? meeting.navigator?.profilePicture : meeting.student?.profilePicture}
+                          >
                             {isStudent() 
-                              ? `with ${meeting.navigator?.firstName} ${meeting.navigator?.lastName}`
-                              : `with ${meeting.student?.firstName} ${meeting.student?.lastName}`}
-                            <br />
-                            {format(new Date(meeting.startTime), 'EEEE, MMMM d, yyyy • h:mm a')}
-                          </>
-                        }
-                      />
-                      <Chip
-                        label={meeting.status}
-                        size="small"
-                        color={getStatusColor(meeting.status)}
-                      />
+                              ? meeting.navigator?.firstName?.[0] 
+                              : meeting.student?.firstName?.[0]}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={meeting.title}
+                          secondary={
+                            <>
+                              {isStudent() 
+                                ? `with ${meeting.navigator?.firstName} ${meeting.navigator?.lastName}`
+                                : `with ${meeting.student?.firstName} ${meeting.student?.lastName}`}
+                              <br />
+                              {format(new Date(meeting.startTime), 'EEEE, MMMM d, yyyy • h:mm a')}
+                            </>
+                          }
+                        />
+                        <Chip
+                          label={meeting.status}
+                          size="small"
+                          color={getStatusColor(meeting.status)}
+                        />
+                      </ListItemButton>
                     </ListItem>
                   ))}
                 </List>
@@ -261,18 +266,21 @@ const Dashboard = () => {
                   {students.slice(0, 5).map((student) => (
                     <ListItem
                       key={student._id}
-                      button
-                      onClick={() => navigate(`/students/${student._id}`)}
+                      disablePadding
                     >
-                      <ListItemAvatar>
-                        <Avatar src={student.profilePicture}>
-                          {student.firstName?.[0]}
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary={`${student.firstName} ${student.lastName}`}
-                        secondary={student.email}
-                      />
+                      <ListItemButton
+                        onClick={() => navigate(`/students/${student._id}`)}
+                      >
+                        <ListItemAvatar>
+                          <Avatar src={student.profilePicture}>
+                            {student.firstName?.[0]}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={`${student.firstName} ${student.lastName}`}
+                          secondary={student.email}
+                        />
+                      </ListItemButton>
                     </ListItem>
                   ))}
                 </List>
