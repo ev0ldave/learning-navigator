@@ -37,7 +37,7 @@ const Login = () => {
 
   const handleGoogleLogin = () => {
     // OAuth redirects must go directly to the backend server, not through the React proxy
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
     window.location.href = `${apiUrl}/auth/google`;
   };
 
@@ -118,7 +118,7 @@ const Login = () => {
             Continue with Google
           </Button>
 
-          {process.env.NODE_ENV !== 'production' && (
+          {import.meta.env.MODE !== 'production' && (
             <>
               <Divider sx={{ my: 3 }}>
                 <Typography variant="body2" color="text.secondary">

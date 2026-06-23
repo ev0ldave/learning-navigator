@@ -91,6 +91,7 @@ const sendMeetingNotification = async (meeting, type) => {
     
     const formatDate = (date) => {
       return new Date(date).toLocaleDateString('en-US', {
+        timeZone: 'America/Los_Angeles',
         weekday: 'long',
         year: 'numeric',
         month: 'long',
@@ -100,6 +101,7 @@ const sendMeetingNotification = async (meeting, type) => {
     
     const formatTime = (date) => {
       return new Date(date).toLocaleTimeString('en-US', {
+        timeZone: 'America/Los_Angeles',
         hour: 'numeric',
         minute: '2-digit',
         hour12: true

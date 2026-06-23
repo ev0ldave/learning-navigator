@@ -7,6 +7,7 @@ import {
   Typography,
   List,
   ListItem,
+  ListItemButton,
   ListItemText,
   ListItemAvatar,
   Avatar,
@@ -86,17 +87,21 @@ const Students = () => {
               {filteredStudents.map((student) => (
                 <ListItem
                   key={student._id}
-                  button
-                  onClick={() => navigate(`/students/${student._id}`)}
-                  sx={{ borderRadius: 1, mb: 1, bgcolor: 'background.default' }}
+                  disablePadding
+                  sx={{ mb: 1 }}
                 >
-                  <ListItemAvatar>
-                    <Avatar src={student.profilePicture}>{student.firstName?.[0]}</Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={`${student.firstName} ${student.lastName}`}
-                    secondary={student.email}
-                  />
+                  <ListItemButton
+                    onClick={() => navigate(`/students/${student._id}`)}
+                    sx={{ borderRadius: 1, bgcolor: 'background.default' }}
+                  >
+                    <ListItemAvatar>
+                      <Avatar src={student.profilePicture}>{student.firstName?.[0]}</Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={`${student.firstName} ${student.lastName}`}
+                      secondary={student.email}
+                    />
+                  </ListItemButton>
                 </ListItem>
               ))}
             </List>

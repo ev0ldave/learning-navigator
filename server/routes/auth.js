@@ -118,7 +118,7 @@ router.post('/local/register', [
       message: 'Account created successfully',
       token,
       user: {
-        id: user._id,
+        _id: user._id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
@@ -191,7 +191,7 @@ router.post('/local/login', [
       success: true,
       token,
       user: {
-        id: user._id,
+        _id: user._id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,

@@ -5,7 +5,7 @@
 # Vercel Project
 resource "vercel_project" "frontend" {
   name      = var.project_name
-  framework = "create-react-app"
+  framework = "vite"
 
   git_repository = {
     type = "github"
@@ -22,12 +22,12 @@ resource "vercel_project" "frontend" {
   # Environment variables
   environment = [
     {
-      key    = "REACT_APP_API_URL"
+      key    = "VITE_API_URL"
       value  = "https://${var.project_name}-backend.onrender.com/api"
       target = ["production", "preview"]
     },
     {
-      key    = "REACT_APP_GOOGLE_CLIENT_ID"
+      key    = "VITE_GOOGLE_CLIENT_ID"
       value  = var.google_client_id
       target = ["production", "preview"]
     }
