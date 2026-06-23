@@ -118,106 +118,110 @@ const Login = () => {
             Continue with Google
           </Button>
 
-          <Divider sx={{ my: 3 }}>
-            <Typography variant="body2" color="text.secondary">
-              OR (Development Only)
-            </Typography>
-          </Divider>
+          {process.env.NODE_ENV !== 'production' && (
+            <>
+              <Divider sx={{ my: 3 }}>
+                <Typography variant="body2" color="text.secondary">
+                  OR (Development Only)
+                </Typography>
+              </Divider>
 
-          <Tabs
-            value={tab}
-            onChange={(e, newValue) => setTab(newValue)}
-            variant="fullWidth"
-            sx={{ mb: 3 }}
-          >
-            <Tab label="Login" />
-            <Tab label="Register" />
-          </Tabs>
+              <Tabs
+                value={tab}
+                onChange={(e, newValue) => setTab(newValue)}
+                variant="fullWidth"
+                sx={{ mb: 3 }}
+              >
+                <Tab label="Login" />
+                <Tab label="Register" />
+              </Tabs>
 
-          {tab === 0 ? (
-            <Box component="form" onSubmit={handleLocalLogin}>
-              <TextField
-                fullWidth
-                label="Email"
-                type="email"
-                margin="normal"
-                value={loginForm.email}
-                onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
-                required
-              />
-              <TextField
-                fullWidth
-                label="Password"
-                type="password"
-                margin="normal"
-                value={loginForm.password}
-                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                required
-              />
-              <Button
-                type="submit"
-                variant="outlined"
-                fullWidth
-                size="large"
-                disabled={loading}
-                sx={{ mt: 2 }}
-              >
-                {loading ? <CircularProgress size={24} /> : 'Sign In'}
-              </Button>
-            </Box>
-          ) : (
-            <Box component="form" onSubmit={handleRegister}>
-              <TextField
-                fullWidth
-                label="First Name"
-                margin="normal"
-                value={registerForm.firstName}
-                onChange={(e) => setRegisterForm({ ...registerForm, firstName: e.target.value })}
-                required
-              />
-              <TextField
-                fullWidth
-                label="Last Name"
-                margin="normal"
-                value={registerForm.lastName}
-                onChange={(e) => setRegisterForm({ ...registerForm, lastName: e.target.value })}
-                required
-              />
-              <TextField
-                fullWidth
-                label="Email"
-                type="email"
-                margin="normal"
-                value={registerForm.email}
-                onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
-                required
-              />
-              <TextField
-                fullWidth
-                label="Password"
-                type="password"
-                margin="normal"
-                value={registerForm.password}
-                onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
-                required
-              />
-              <Button
-                type="submit"
-                variant="outlined"
-                fullWidth
-                size="large"
-                disabled={loading}
-                sx={{ mt: 2 }}
-              >
-                {loading ? <CircularProgress size={24} /> : 'Create Account'}
-              </Button>
-            </Box>
+              {tab === 0 ? (
+                <Box component="form" onSubmit={handleLocalLogin}>
+                  <TextField
+                    fullWidth
+                    label="Email"
+                    type="email"
+                    margin="normal"
+                    value={loginForm.email}
+                    onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+                    required
+                  />
+                  <TextField
+                    fullWidth
+                    label="Password"
+                    type="password"
+                    margin="normal"
+                    value={loginForm.password}
+                    onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                    required
+                  />
+                  <Button
+                    type="submit"
+                    variant="outlined"
+                    fullWidth
+                    size="large"
+                    disabled={loading}
+                    sx={{ mt: 2 }}
+                  >
+                    {loading ? <CircularProgress size={24} /> : 'Sign In'}
+                  </Button>
+                </Box>
+              ) : (
+                <Box component="form" onSubmit={handleRegister}>
+                  <TextField
+                    fullWidth
+                    label="First Name"
+                    margin="normal"
+                    value={registerForm.firstName}
+                    onChange={(e) => setRegisterForm({ ...registerForm, firstName: e.target.value })}
+                    required
+                  />
+                  <TextField
+                    fullWidth
+                    label="Last Name"
+                    margin="normal"
+                    value={registerForm.lastName}
+                    onChange={(e) => setRegisterForm({ ...registerForm, lastName: e.target.value })}
+                    required
+                  />
+                  <TextField
+                    fullWidth
+                    label="Email"
+                    type="email"
+                    margin="normal"
+                    value={registerForm.email}
+                    onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
+                    required
+                  />
+                  <TextField
+                    fullWidth
+                    label="Password"
+                    type="password"
+                    margin="normal"
+                    value={registerForm.password}
+                    onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+                    required
+                  />
+                  <Button
+                    type="submit"
+                    variant="outlined"
+                    fullWidth
+                    size="large"
+                    disabled={loading}
+                    sx={{ mt: 2 }}
+                  >
+                    {loading ? <CircularProgress size={24} /> : 'Create Account'}
+                  </Button>
+                </Box>
+              )}
+
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 3, textAlign: 'center' }}>
+                Test accounts (dev only):<br />
+                1411andrew@gmail.com | ev0ldave@gmail.com | trlandrew@students.highline.edu
+              </Typography>
+            </>
           )}
-
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 3, textAlign: 'center' }}>
-            Test accounts (dev only):<br />
-            1411andrew@gmail.com | ev0ldave@gmail.com | trlandrew@students.highline.edu
-          </Typography>
         </CardContent>
       </Card>
     </Box>

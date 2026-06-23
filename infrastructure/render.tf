@@ -4,19 +4,26 @@
 
 # Backend Web Service
 resource "render_web_service" "backend" {
-  name    = "${var.project_name}-backend"
-  plan    = "free" # Free tier
-  region  = "oregon"
-  runtime = "node"
+  name   = "${var.project_name}-backend"
+  plan   = "free" # Free tier
+  region = "oregon"
 
-  # GitHub repository configuration
-  repo_url = "https://github.com/${var.github_repo}"
-  branch   = var.github_branch
+  # Runtime source configuration (new provider format)
+  runtime_source = {
+    native_runtime = {
+      auto_deploy   = true
+      branch        = var.github_branch
+      build_command = "npm install"
+      build_filter = {
+        paths         = ["server/**", "package.json"]
+        ignored_paths = ["client/**", "infrastructure/**"]
+      }
+      repo_url      = "https://github.com/${var.github_repo}"
+      runtime       = "node"
+    }
+  }
 
-  # Build configuration
-  build_command = "npm install"
   start_command = "npm start"
-  root_dir      = "" # Root of repo (server/index.js is main)
 
   # Environment variables
   env_vars = {
@@ -79,9 +86,6 @@ resource "render_web_service" "backend" {
 
   # Health check
   health_check_path = "/api/health"
-
-  # Auto deploy on push
-  auto_deploy = true
 }
 
 # Output the backend URL
