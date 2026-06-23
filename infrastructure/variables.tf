@@ -135,6 +135,12 @@ variable "allowed_domain" {
   default     = "students.highline.edu"
 }
 
+variable "zoom_link" {
+  description = "Default Zoom meeting link for virtual meetings"
+  type        = string
+  default     = ""
+}
+
 # =============================================================================
 # GitHub Repository (for Render and Vercel deployments)
 # =============================================================================

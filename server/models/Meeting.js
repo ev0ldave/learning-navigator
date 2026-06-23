@@ -136,6 +136,14 @@ const meetingSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Pre-save hook to set meeting link for virtual meetings
+meetingSchema.pre('save', function(next) {
+  if (this.location === 'virtual' && !this.meetingLink && process.env.ZOOM_LINK) {
+    this.meetingLink = process.env.ZOOM_LINK;
+  }
+  next();
+});
+
 // Indexes for better query performance
 meetingSchema.index({ student: 1, startTime: 1 });
 meetingSchema.index({ navigator: 1, startTime: 1 });

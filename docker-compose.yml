@@ -48,6 +48,7 @@ services:
       CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-trlandrew@students.highline.edu}
       ALLOWED_DOMAIN: ${ALLOWED_DOMAIN:-students.highline.edu}
+      ZOOM_LINK: ${ZOOM_LINK:-}
       TEST_STUDENT_EMAIL_1: ${TEST_STUDENT_EMAIL_1:-1411andrew@gmail.com}
       TEST_STUDENT_EMAIL_2: ${TEST_STUDENT_EMAIL_2:-ev0ldave@gmail.com}
       TEST_ADMIN_EMAIL: ${TEST_ADMIN_EMAIL:-trlandrew@students.highline.edu}

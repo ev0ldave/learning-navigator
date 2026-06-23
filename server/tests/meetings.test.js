@@ -6,6 +6,9 @@ const User = require('../models/User');
 const Meeting = require('../models/Meeting');
 const WeeklyHours = require('../models/AvailableHours');
 
+// Set default Zoom link for tests
+process.env.ZOOM_LINK = 'https://highline.zoom.us/j/8196696719';
+
 let mongoServer;
 let studentToken;
 let navigatorToken;
@@ -104,6 +107,8 @@ describe('Meeting Routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.meeting.title).toBe('Test Meeting');
       expect(res.body.meeting.status).toBe('scheduled');
+      // Virtual meetings should have default Zoom link
+      expect(res.body.meeting.meetingLink).toBe('https://highline.zoom.us/j/8196696719');
     });
 
     it('should reject meeting without navigator', async () => {

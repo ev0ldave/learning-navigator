@@ -53,6 +53,9 @@ email_from     = "Learning Navigator <your-email@gmail.com>"
 admin_email    = "admin@example.com"
 allowed_domain = "students.highline.edu"
 
+# Zoom Configuration
+zoom_link = "your-zoom-link"
+
 # MongoDB Configuration (optional overrides)
 mongodb_region        = "US_WEST_2"  # AWS region for free tier
 mongodb_database_name = "learning-navigator"
