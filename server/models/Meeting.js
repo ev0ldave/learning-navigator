@@ -51,7 +51,7 @@ const meetingSchema = new mongoose.Schema({
   recurrence: {
     frequency: {
       type: String,
-      enum: ['weekly', 'biweekly', 'monthly'],
+      enum: ['weekly', 'biweekly', 'triweekly', 'monthly'],
       default: 'weekly'
     },
     dayOfWeek: {
