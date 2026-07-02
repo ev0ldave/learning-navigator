@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Box, Card, CardContent, Typography, CircularProgress, Alert,
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField,
@@ -40,10 +40,14 @@ const Calendar = () => {
   const { isNavigator, isAdmin } = useAuth();
   const { showSuccess, showError } = useNotification();
   const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [bookDialogOpen, setBookDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
+  
+  // Track last fetched range to prevent duplicate requests
+  const lastFetchedRange = useRef(null);
+  const fetchTimeout = useRef(null);
   
   // Weekly hours dialog state
   const [weeklyHoursDialogOpen, setWeeklyHoursDialogOpen] = useState(false);
@@ -104,15 +108,20 @@ const Calendar = () => {
   }, []);
 
   useEffect(() => {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    fetchEvents(start, end);
-    
+    // Only fetch weekly hours here - events are fetched via handleDatesSet
     if (isNavigator() || isAdmin()) {
       fetchWeeklyHours();
     }
-  }, [fetchEvents, fetchWeeklyHours, isNavigator, isAdmin]);
+  }, [fetchWeeklyHours, isNavigator, isAdmin]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (fetchTimeout.current) {
+        clearTimeout(fetchTimeout.current);
+      }
+    };
+  }, []);
 
   const handleDateClick = (info) => {
     setSelectedDate(info.date);
@@ -131,9 +140,25 @@ const Calendar = () => {
     }
   };
 
-  const handleDatesSet = (dateInfo) => {
-    fetchEvents(dateInfo.start, dateInfo.end);
-  };
+  const handleDatesSet = useCallback((dateInfo) => {
+    // Create a key for this date range
+    const rangeKey = `${dateInfo.start.toISOString()}-${dateInfo.end.toISOString()}`;
+    
+    // Skip if we already fetched this exact range
+    if (lastFetchedRange.current === rangeKey) {
+      return;
+    }
+    
+    // Debounce rapid calls
+    if (fetchTimeout.current) {
+      clearTimeout(fetchTimeout.current);
+    }
+    
+    fetchTimeout.current = setTimeout(() => {
+      lastFetchedRange.current = rangeKey;
+      fetchEvents(dateInfo.start, dateInfo.end);
+    }, 100);
+  }, [fetchEvents]);
 
   const handleDayEnabledChange = (dayKey, enabled) => {
     setWeeklyHours(prev => ({

@@ -578,3 +578,201 @@ describe('Meeting Filters', () => {
     expect(res.body.pagination.total).toBe(3);
   });
 });
+
+describe('DELETE /api/meetings/series/:id', () => {
+  let parentMeeting;
+  let childMeeting1;
+  let childMeeting2;
+
+  beforeEach(async () => {
+    const startTime = new Date();
+    startTime.setDate(startTime.getDate() + 1);
+    startTime.setHours(10, 0, 0, 0);
+
+    // Create parent recurring meeting
+    parentMeeting = await Meeting.create({
+      student: student._id,
+      navigator: navigator._id,
+      title: 'Recurring Meeting',
+      startTime: startTime,
+      endTime: new Date(startTime.getTime() + 30 * 60 * 1000),
+      status: 'scheduled',
+      isRecurring: true,
+      type: 'recurring',
+      recurrence: {
+        frequency: 'weekly',
+        dayOfWeek: startTime.getDay()
+      },
+      createdBy: student._id
+    });
+
+    // Create child recurring meetings
+    const child1Time = new Date(startTime.getTime() + 7 * 24 * 60 * 60 * 1000);
+    childMeeting1 = await Meeting.create({
+      student: student._id,
+      navigator: navigator._id,
+      title: 'Recurring Meeting',
+      startTime: child1Time,
+      endTime: new Date(child1Time.getTime() + 30 * 60 * 1000),
+      status: 'scheduled',
+      isRecurring: true,
+      type: 'recurring',
+      recurrence: {
+        frequency: 'weekly',
+        dayOfWeek: child1Time.getDay(),
+        parentMeetingId: parentMeeting._id
+      },
+      createdBy: student._id
+    });
+
+    const child2Time = new Date(startTime.getTime() + 14 * 24 * 60 * 60 * 1000);
+    childMeeting2 = await Meeting.create({
+      student: student._id,
+      navigator: navigator._id,
+      title: 'Recurring Meeting',
+      startTime: child2Time,
+      endTime: new Date(child2Time.getTime() + 30 * 60 * 1000),
+      status: 'scheduled',
+      isRecurring: true,
+      type: 'recurring',
+      recurrence: {
+        frequency: 'weekly',
+        dayOfWeek: child2Time.getDay(),
+        parentMeetingId: parentMeeting._id
+      },
+      createdBy: student._id
+    });
+  });
+
+  it('should delete all meetings in a recurring series as student', async () => {
+    const res = await request(app)
+      .delete(`/api/meetings/series/${parentMeeting._id}`)
+      .set('Authorization', `Bearer ${studentToken}`)
+      .expect(200);
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.deletedCount).toBe(3);
+
+    // Verify all meetings are cancelled
+    const meetings = await Meeting.find({
+      $or: [
+        { _id: parentMeeting._id },
+        { 'recurrence.parentMeetingId': parentMeeting._id }
+      ]
+    });
+    expect(meetings.every(m => m.status === 'cancelled')).toBe(true);
+  });
+
+  it('should delete series when using child meeting ID', async () => {
+    const res = await request(app)
+      .delete(`/api/meetings/series/${childMeeting1._id}`)
+      .set('Authorization', `Bearer ${studentToken}`)
+      .expect(200);
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.deletedCount).toBe(3);
+  });
+
+  it('should delete only future meetings when scope=future', async () => {
+    // Mark parent meeting as in the past by changing start time
+    const pastTime = new Date();
+    pastTime.setDate(pastTime.getDate() - 7);
+    await Meeting.findByIdAndUpdate(parentMeeting._id, {
+      startTime: pastTime,
+      endTime: new Date(pastTime.getTime() + 30 * 60 * 1000)
+    });
+
+    const res = await request(app)
+      .delete(`/api/meetings/series/${childMeeting1._id}?scope=future`)
+      .set('Authorization', `Bearer ${studentToken}`)
+      .expect(200);
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.scope).toBe('future');
+    // Only future meetings should be cancelled (child1 and child2)
+    expect(res.body.deletedCount).toBe(2);
+
+    // Verify parent meeting is still scheduled
+    const parent = await Meeting.findById(parentMeeting._id);
+    expect(parent.status).toBe('scheduled');
+  });
+
+  it('should allow navigator to delete series', async () => {
+    const jwt = require('jsonwebtoken');
+    const navToken = jwt.sign(
+      { userId: navigator._id },
+      process.env.JWT_SECRET || 'default-jwt-secret',
+      { expiresIn: '7d' }
+    );
+
+    const res = await request(app)
+      .delete(`/api/meetings/series/${parentMeeting._id}`)
+      .set('Authorization', `Bearer ${navToken}`)
+      .expect(200);
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.deletedCount).toBe(3);
+  });
+
+  it('should reject non-recurring meeting', async () => {
+    const startTime = new Date();
+    startTime.setDate(startTime.getDate() + 1);
+
+    const singleMeeting = await Meeting.create({
+      student: student._id,
+      navigator: navigator._id,
+      title: 'Single Meeting',
+      startTime: startTime,
+      endTime: new Date(startTime.getTime() + 30 * 60 * 1000),
+      status: 'scheduled',
+      isRecurring: false,
+      createdBy: student._id
+    });
+
+    const res = await request(app)
+      .delete(`/api/meetings/series/${singleMeeting._id}`)
+      .set('Authorization', `Bearer ${studentToken}`)
+      .expect(400);
+
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toContain('not part of a recurring series');
+  });
+
+  it('should deny access to unrelated user', async () => {
+    const otherStudent = await User.create({
+      email: 'other@test.com',
+      firstName: 'Other',
+      lastName: 'Student',
+      role: 'student',
+      isActive: true
+    });
+
+    const jwt = require('jsonwebtoken');
+    const otherToken = jwt.sign(
+      { userId: otherStudent._id },
+      process.env.JWT_SECRET || 'default-jwt-secret',
+      { expiresIn: '7d' }
+    );
+
+    const res = await request(app)
+      .delete(`/api/meetings/series/${parentMeeting._id}`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .expect(403);
+
+    expect(res.body.success).toBe(false);
+  });
+
+  it('should include cancellation reason', async () => {
+    const res = await request(app)
+      .delete(`/api/meetings/series/${parentMeeting._id}`)
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ reason: 'Schedule changed' })
+      .expect(200);
+
+    expect(res.body.success).toBe(true);
+
+    // Verify cancellation reason is saved
+    const meeting = await Meeting.findById(parentMeeting._id);
+    expect(meeting.cancellationReason).toBe('Schedule changed');
+  });
+});

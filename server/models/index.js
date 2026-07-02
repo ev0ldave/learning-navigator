@@ -4,6 +4,7 @@ const Note = require('./Note');
 const Notification = require('./Notification');
 const Report = require('./Report');
 const UnavailableBlock = require('./UnavailableBlock');
+const SchoolQuarter = require('./SchoolQuarter');
 
 module.exports = {
   User,
@@ -11,5 +12,6 @@ module.exports = {
   Note,
   Notification,
   Report,
-  UnavailableBlock
+  UnavailableBlock,
+  SchoolQuarter
 };
