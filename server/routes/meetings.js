@@ -188,7 +188,7 @@ router.post('/',
     body('title').optional().trim(),
     body('description').optional().trim(),
     body('isRecurring').optional().isBoolean(),
-    body('recurrence.frequency').optional().isIn(['weekly', 'biweekly', 'monthly']),
+    body('recurrence.frequency').optional().isIn(['weekly', 'biweekly', 'triweekly', 'monthly']),
     body('location').optional().isIn(['in_person', 'virtual', 'phone'])
   ],
   async (req, res) => {
@@ -350,6 +350,28 @@ router.post('/',
         });
       }
       
+      // Determine recurrence settings based on user role
+      // Students: always weekly until quarter end
+      // Navigators/Admins: can choose frequency and end date (capped by quarter)
+      let recurrenceFrequency = 'weekly';
+      let recurrenceEndDate = null;
+      
+      if (isRecurring) {
+        if (req.user.role === 'student') {
+          // Students: force weekly until quarter end
+          recurrenceFrequency = 'weekly';
+          recurrenceEndDate = await SchoolQuarter.getRecurrenceEndDate(null);
+        } else {
+          // Navigators/Admins: use provided values, capped by quarter
+          recurrenceFrequency = recurrence?.frequency || 'weekly';
+          if (recurrence?.endDate) {
+            recurrenceEndDate = await SchoolQuarter.getRecurrenceEndDate(new Date(recurrence.endDate));
+          } else {
+            recurrenceEndDate = await SchoolQuarter.getRecurrenceEndDate(null);
+          }
+        }
+      }
+      
       // Create meeting
       const meeting = new Meeting({
         student: studentId,
@@ -361,9 +383,9 @@ router.post('/',
         type: isRecurring ? 'recurring' : 'initial',
         isRecurring: isRecurring || false,
         recurrence: isRecurring ? {
-          frequency: recurrence?.frequency || 'weekly',
+          frequency: recurrenceFrequency,
           dayOfWeek: new Date(startTime).getDay(),
-          endDate: recurrence?.endDate ? new Date(recurrence.endDate) : null
+          endDate: recurrenceEndDate
         } : undefined,
         location: location || 'virtual',
         meetingLink,
@@ -384,11 +406,9 @@ router.post('/',
       // Send notifications
       await queueMeetingNotification(meeting._id.toString(), 'scheduled');
       
-      // If recurring, create future meetings (capped to quarter end date)
-      if (isRecurring && recurrence?.endDate) {
-        const requestedEndDate = new Date(recurrence.endDate);
-        const cappedEndDate = await SchoolQuarter.getRecurrenceEndDate(requestedEndDate);
-        await createRecurringMeetings(meeting, cappedEndDate);
+      // If recurring, create future meetings
+      if (isRecurring && recurrenceEndDate) {
+        await createRecurringMeetings(meeting, recurrenceEndDate);
       }
       
       res.status(201).json({
@@ -790,7 +810,7 @@ router.delete('/series/:id',
 
 // @route   PUT /api/meetings/series/:id/recurrence
 // @desc    Update recurrence frequency for a meeting series
-// @access  Private (navigator or admin)
+// @access  Private (navigator or admin only - students cannot modify)
 router.put('/series/:id/recurrence',
   isAuthenticated,
   requireNavigator,
@@ -827,7 +847,7 @@ router.put('/series/:id/recurrence',
         });
       }
 
-      // Check permissions
+      // Check permissions - only navigators and admins can update recurrence
       const canUpdate = 
         req.user.role === 'administrator' ||
         meeting.navigator.toString() === req.user._id.toString();
@@ -890,40 +910,24 @@ router.put('/series/:id/recurrence',
 
       console.log(`Deleted ${deleteResult.deletedCount} future meetings for frequency update`);
 
+      // Calculate new end date (capped by quarter)
+      let recurrenceEndDate = endDate ? new Date(endDate) : parentMeeting.recurrence?.endDate;
+      if (recurrenceEndDate) {
+        recurrenceEndDate = await SchoolQuarter.getRecurrenceEndDate(recurrenceEndDate);
+      }
+
       // Update the parent meeting's recurrence settings
       parentMeeting.recurrence = {
         ...parentMeeting.recurrence,
         frequency: frequency,
-        endDate: endDate ? new Date(endDate) : parentMeeting.recurrence?.endDate
+        endDate: recurrenceEndDate
       };
       await parentMeeting.save();
-
-      // Calculate the new end date (use provided or existing, capped by quarter)
-      let recurrenceEndDate = endDate ? new Date(endDate) : parentMeeting.recurrence?.endDate;
-      
-      if (recurrenceEndDate) {
-        // Cap to quarter end date if active
-        const SchoolQuarter = require('../models/SchoolQuarter');
-        recurrenceEndDate = await SchoolQuarter.getRecurrenceEndDate(recurrenceEndDate);
-      }
 
       // Recreate future meetings with new frequency if we have an end date
       let newMeetings = [];
       if (recurrenceEndDate) {
-        // Start from the parent meeting's date/time, but only create future occurrences
-        const startDate = parentMeeting.startTime > today ? parentMeeting.startTime : today;
-        
-        // Create a template meeting for the helper function
-        const templateMeeting = {
-          ...parentMeeting.toObject(),
-          _id: parentId,
-          recurrence: {
-            ...parentMeeting.recurrence,
-            frequency: frequency
-          }
-        };
-
-        newMeetings = await createRecurringMeetingsFromDate(templateMeeting, startDate, recurrenceEndDate);
+        newMeetings = await createRecurringMeetings(parentMeeting, recurrenceEndDate);
 
         // Create calendar events for new meetings
         for (const newMeeting of newMeetings) {
@@ -958,61 +962,6 @@ router.put('/series/:id/recurrence',
     }
   }
 );
-
-// Helper function to create recurring meetings from a specific start date
-async function createRecurringMeetingsFromDate(parentMeeting, startDate, endDate) {
-  const meetings = [];
-  const frequency = parentMeeting.recurrence?.frequency || 'weekly';
-  
-  const duration = parentMeeting.endTime - parentMeeting.startTime;
-  
-  // Calculate interval in days
-  const addDays = frequency === 'weekly' ? 7 : frequency === 'biweekly' ? 14 : frequency === 'triweekly' ? 21 : 30;
-  
-  // Start from the parent meeting's time but on/after startDate
-  let currentDate = new Date(parentMeeting.startTime);
-  
-  // Advance to startDate if parent meeting is in the past
-  while (currentDate < startDate) {
-    currentDate = new Date(currentDate.getTime() + addDays * 24 * 60 * 60 * 1000);
-  }
-  
-  // Skip the first occurrence if it matches the parent meeting exactly
-  if (currentDate.getTime() === new Date(parentMeeting.startTime).getTime()) {
-    currentDate = new Date(currentDate.getTime() + addDays * 24 * 60 * 60 * 1000);
-  }
-  
-  while (currentDate <= endDate) {
-    const newMeeting = new Meeting({
-      student: parentMeeting.student,
-      navigator: parentMeeting.navigator,
-      title: parentMeeting.title,
-      description: parentMeeting.description,
-      startTime: currentDate,
-      endTime: new Date(currentDate.getTime() + duration),
-      duration: parentMeeting.duration,
-      type: 'recurring',
-      isRecurring: true,
-      recurrence: {
-        frequency: frequency,
-        endDate: endDate,
-        parentMeetingId: parentMeeting._id
-      },
-      location: parentMeeting.location,
-      meetingLink: parentMeeting.meetingLink,
-      createdBy: parentMeeting.createdBy
-    });
-    
-    meetings.push(newMeeting);
-    currentDate = new Date(currentDate.getTime() + addDays * 24 * 60 * 60 * 1000);
-  }
-  
-  if (meetings.length > 0) {
-    await Meeting.insertMany(meetings);
-  }
-  
-  return meetings;
-}
 
 // Helper function to create recurring meetings
 async function createRecurringMeetings(parentMeeting, endDate) {

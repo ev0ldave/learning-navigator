@@ -61,7 +61,7 @@ const MeetingDetail = () => {
   const [deleteScope, setDeleteScope] = useState('all');
   const [deleteReason, setDeleteReason] = useState('');
   
-  // Edit recurrence state
+  // Edit recurrence state (navigators/admins only)
   const [editRecurrenceDialogOpen, setEditRecurrenceDialogOpen] = useState(false);
   const [newFrequency, setNewFrequency] = useState('weekly');
   
@@ -183,8 +183,8 @@ const MeetingDetail = () => {
     }
   };
 
+  // Edit recurrence handlers (navigators/admins only)
   const handleOpenEditRecurrence = () => {
-    // Set current frequency as default
     setNewFrequency(meeting.recurrence?.frequency || 'weekly');
     setEditRecurrenceDialogOpen(true);
   };
@@ -195,7 +195,7 @@ const MeetingDetail = () => {
       const response = await meetingsAPI.updateRecurrence(id, newFrequency);
       showSuccess(response.data.message || 'Recurrence updated successfully');
       setEditRecurrenceDialogOpen(false);
-      fetchMeeting(); // Refresh meeting data
+      fetchMeeting();
     } catch (err) {
       showError(err.response?.data?.message || 'Failed to update recurrence');
     } finally {
@@ -389,7 +389,8 @@ const MeetingDetail = () => {
                     Mark as No-Show
                   </Button>
                 )}
-                {canDeleteSeries && (
+                {/* Edit Recurrence - only for navigators/admins */}
+                {canDeleteSeries && isNavigator() && (
                   <Button
                     variant="outlined"
                     startIcon={<RecurrenceIcon />}
@@ -655,7 +656,7 @@ const MeetingDetail = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Edit Recurrence Dialog */}
+      {/* Edit Recurrence Dialog - for navigators/admins only */}
       <Dialog open={editRecurrenceDialogOpen} onClose={() => setEditRecurrenceDialogOpen(false)}>
         <DialogTitle>Edit Recurrence Frequency</DialogTitle>
         <DialogContent>

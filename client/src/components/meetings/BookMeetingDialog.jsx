@@ -223,6 +223,23 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
       const startDateTime = new Date(formData.startTime);
       const endDateTime = addMinutes(startDateTime, formData.duration);
 
+      // For students, recurring meetings are always weekly until quarter end
+      // For navigators/admins, they can choose frequency and end date
+      let recurrenceData = undefined;
+      if (formData.isRecurring) {
+        if (isStudent()) {
+          recurrenceData = {
+            frequency: 'weekly',
+            endDate: activeQuarter?.endDate ? new Date(activeQuarter.endDate).toISOString() : undefined
+          };
+        } else {
+          recurrenceData = {
+            frequency: formData.recurrenceFrequency,
+            endDate: formData.recurrenceEndDate?.toISOString()
+          };
+        }
+      }
+
       const meetingData = {
         navigatorId: isStudent() ? formData.navigatorId : user._id,
         studentId: isNavigator() ? formData.studentId : undefined,
@@ -232,10 +249,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
         description: formData.description,
         location: formData.location,
         isRecurring: formData.isRecurring,
-        recurrence: formData.isRecurring ? {
-          frequency: formData.recurrenceFrequency,
-          endDate: formData.recurrenceEndDate?.toISOString()
-        } : undefined
+        recurrence: recurrenceData
       };
 
       await meetingsAPI.create(meetingData);
@@ -385,13 +399,25 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
                 <Checkbox
                   checked={formData.isRecurring}
                   onChange={(e) => setFormData({ ...formData, isRecurring: e.target.checked })}
+                  disabled={isStudent() && !activeQuarter}
                 />
               }
               label="Make this a recurring meeting"
             />
+            {formData.isRecurring && isStudent() && activeQuarter && (
+              <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: 0.5 }}>
+                Recurring meetings repeat weekly until the end of {activeQuarter.name} ({format(new Date(activeQuarter.endDate), 'MMM d, yyyy')})
+              </Typography>
+            )}
+            {isStudent() && !activeQuarter && (
+              <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: 0.5 }}>
+                Recurring meetings require an active school quarter to be set
+              </Typography>
+            )}
           </Grid>
 
-          {formData.isRecurring && (
+          {/* For non-students, show frequency and end date options */}
+          {formData.isRecurring && !isStudent() && (
             <>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
