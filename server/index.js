@@ -17,6 +17,7 @@ const reportRoutes = require('./routes/reports');
 const calendarRoutes = require('./routes/calendar');
 const notificationRoutes = require('./routes/notifications');
 const availabilityRoutes = require('./routes/availability');
+const adminRoutes = require('./routes/admin');
 
 // Import passport config
 require('./config/passport');
@@ -40,8 +41,16 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// Rate limiting (skip in test environment)
-if (process.env.NODE_ENV !== 'test') {
+// CORS configuration - must be before rate limiter for preflight requests
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Rate limiting (skip in test and development environments)
+if (process.env.NODE_ENV === 'production') {
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // limit each IP to 100 requests per windowMs
@@ -62,14 +71,6 @@ if (process.env.NODE_ENV !== 'test') {
   app.use('/api/auth/local', authLimiter);
   app.use('/api/auth/google', authLimiter);
 }
-
-// CORS configuration
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
 
 // Body parsing middleware
 app.use(express.json({ limit: '10kb' })); // Limit body size
@@ -118,6 +119,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/availability', availabilityRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

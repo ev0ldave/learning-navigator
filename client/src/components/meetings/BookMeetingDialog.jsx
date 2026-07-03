@@ -23,7 +23,7 @@ import { DatePicker } from '@mui/x-date-pickers';
 import { addMinutes, addDays, format, startOfDay, isAfter } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
-import { usersAPI, meetingsAPI, calendarAPI } from '../../services/api';
+import { usersAPI, meetingsAPI, calendarAPI, adminAPI } from '../../services/api';
 
 // Format time in Pacific timezone
 const formatPacificTime = (date) => {
@@ -45,6 +45,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
   const [availableSlots, setAvailableSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [error, setError] = useState(null);
+  const [activeQuarter, setActiveQuarter] = useState(null);
 
   const [formData, setFormData] = useState({
     navigatorId: '',
@@ -61,13 +62,33 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
   });
 
   // Calculate minimum date - students must book 24 hours in advance
+  // Also respect quarter start date if set
   const getMinDate = () => {
+    let minDate;
     if (isStudent()) {
       // For students, minimum date is tomorrow (start of day)
-      return startOfDay(addDays(new Date(), 1));
+      minDate = startOfDay(addDays(new Date(), 1));
+    } else {
+      // For navigators/admins, can book same day
+      minDate = startOfDay(new Date());
     }
-    // For navigators/admins, can book same day
-    return startOfDay(new Date());
+    
+    // If active quarter has a start date, use the later of the two
+    if (activeQuarter?.startDate) {
+      const quarterStart = startOfDay(new Date(activeQuarter.startDate));
+      if (isAfter(quarterStart, minDate)) {
+        return quarterStart;
+      }
+    }
+    return minDate;
+  };
+
+  // Calculate maximum date based on active quarter end date
+  const getMaxDate = () => {
+    if (activeQuarter?.endDate) {
+      return startOfDay(new Date(activeQuarter.endDate));
+    }
+    return null; // No max date if no quarter set
   };
 
   // Check if a date is valid for booking (for students: must be at least tomorrow)
@@ -106,6 +127,15 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
 
   const fetchData = async () => {
     try {
+      // Fetch active quarter to constrain date selection
+      try {
+        const quarterResponse = await adminAPI.getActiveQuarter();
+        setActiveQuarter(quarterResponse.data.quarter || null);
+      } catch (err) {
+        console.error('Failed to fetch active quarter:', err);
+        setActiveQuarter(null);
+      }
+
       // Fetch navigators for students
       if (isStudent()) {
         const response = await usersAPI.getNavigators();
@@ -193,6 +223,23 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
       const startDateTime = new Date(formData.startTime);
       const endDateTime = addMinutes(startDateTime, formData.duration);
 
+      // For students, recurring meetings are always weekly until quarter end
+      // For navigators/admins, they can choose frequency and end date
+      let recurrenceData = undefined;
+      if (formData.isRecurring) {
+        if (isStudent()) {
+          recurrenceData = {
+            frequency: 'weekly',
+            endDate: activeQuarter?.endDate ? new Date(activeQuarter.endDate).toISOString() : undefined
+          };
+        } else {
+          recurrenceData = {
+            frequency: formData.recurrenceFrequency,
+            endDate: formData.recurrenceEndDate?.toISOString()
+          };
+        }
+      }
+
       const meetingData = {
         navigatorId: isStudent() ? formData.navigatorId : user._id,
         studentId: isNavigator() ? formData.studentId : undefined,
@@ -202,10 +249,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
         description: formData.description,
         location: formData.location,
         isRecurring: formData.isRecurring,
-        recurrence: formData.isRecurring ? {
-          frequency: formData.recurrenceFrequency,
-          endDate: formData.recurrenceEndDate?.toISOString()
-        } : undefined
+        recurrence: recurrenceData
       };
 
       await meetingsAPI.create(meetingData);
@@ -286,7 +330,13 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
               value={formData.date}
               onChange={(date) => setFormData({ ...formData, date, startTime: null })}
               minDate={getMinDate()}
-              slotProps={{ textField: { fullWidth: true } }}
+              maxDate={getMaxDate()}
+              slotProps={{ 
+                textField: { 
+                  fullWidth: true,
+                  helperText: activeQuarter ? `${activeQuarter.name}: ${format(new Date(activeQuarter.startDate), 'MMM d')} - ${format(new Date(activeQuarter.endDate), 'MMM d, yyyy')}` : undefined
+                } 
+              }}
             />
           </Grid>
 
@@ -340,6 +390,66 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
                 </Typography>
               )}
             </Grid>
+          )}
+
+          {/* Recurring - positioned after time slots */}
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={formData.isRecurring}
+                  onChange={(e) => setFormData({ ...formData, isRecurring: e.target.checked })}
+                  disabled={isStudent() && !activeQuarter}
+                />
+              }
+              label="Make this a recurring meeting"
+            />
+            {formData.isRecurring && isStudent() && activeQuarter && (
+              <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: 0.5 }}>
+                Recurring meetings repeat weekly until the end of {activeQuarter.name} ({format(new Date(activeQuarter.endDate), 'MMM d, yyyy')})
+              </Typography>
+            )}
+            {isStudent() && !activeQuarter && (
+              <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: 0.5 }}>
+                Recurring meetings require an active school quarter to be set
+              </Typography>
+            )}
+          </Grid>
+
+          {/* For non-students, show frequency and end date options */}
+          {formData.isRecurring && !isStudent() && (
+            <>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Frequency</InputLabel>
+                  <Select
+                    value={formData.recurrenceFrequency}
+                    onChange={(e) => setFormData({ ...formData, recurrenceFrequency: e.target.value })}
+                    label="Frequency"
+                  >
+                    <MenuItem value="weekly">Weekly</MenuItem>
+                    <MenuItem value="biweekly">Every 2 weeks</MenuItem>
+                    <MenuItem value="triweekly">Every 3 weeks</MenuItem>
+                    <MenuItem value="monthly">Monthly</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <DatePicker
+                  label="End Date"
+                  value={formData.recurrenceEndDate}
+                  onChange={(date) => setFormData({ ...formData, recurrenceEndDate: date })}
+                  minDate={formData.date}
+                  maxDate={getMaxDate()}
+                  slotProps={{ 
+                    textField: { 
+                      fullWidth: true,
+                      helperText: activeQuarter ? 'Limited to quarter end date' : undefined
+                    } 
+                  }}
+                />
+              </Grid>
+            </>
           )}
 
           {/* Duration */}
@@ -396,47 +506,6 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
               rows={3}
             />
           </Grid>
-
-          {/* Recurring */}
-          <Grid item xs={12}>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={formData.isRecurring}
-                  onChange={(e) => setFormData({ ...formData, isRecurring: e.target.checked })}
-                />
-              }
-              label="Make this a recurring meeting"
-            />
-          </Grid>
-
-          {formData.isRecurring && (
-            <>
-              <Grid item xs={12} md={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Frequency</InputLabel>
-                  <Select
-                    value={formData.recurrenceFrequency}
-                    onChange={(e) => setFormData({ ...formData, recurrenceFrequency: e.target.value })}
-                    label="Frequency"
-                  >
-                    <MenuItem value="weekly">Weekly</MenuItem>
-                    <MenuItem value="biweekly">Every 2 weeks</MenuItem>
-                    <MenuItem value="monthly">Monthly</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <DatePicker
-                  label="End Date"
-                  value={formData.recurrenceEndDate}
-                  onChange={(date) => setFormData({ ...formData, recurrenceEndDate: date })}
-                  minDate={formData.date}
-                  slotProps={{ textField: { fullWidth: true } }}
-                />
-              </Grid>
-            </>
-          )}
         </Grid>
       </DialogContent>
       <DialogActions>

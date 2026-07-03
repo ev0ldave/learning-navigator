@@ -34,7 +34,8 @@ import {
   Notifications as NotificationsIcon,
   AdminPanelSettings as AdminIcon,
   Logout as LogoutIcon,
-  ChevronLeft as ChevronLeftIcon
+  ChevronLeft as ChevronLeftIcon,
+  DateRange as QuarterIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
@@ -98,7 +99,8 @@ const MainLayout = () => {
   // Add admin-specific items
   if (isAdmin()) {
     menuItems.push(
-      { text: 'Manage Users', icon: <AdminIcon />, path: '/admin/users' }
+      { text: 'Manage Users', icon: <AdminIcon />, path: '/admin/users' },
+      { text: 'School Quarters', icon: <QuarterIcon />, path: '/admin/quarters' }
     );
   }
 

@@ -70,7 +70,11 @@ export const meetingsAPI = {
   update: (id, data) => api.put(`/meetings/${id}`, data),
   cancel: (id, reason) => api.put(`/meetings/${id}/cancel`, { reason }),
   complete: (id) => api.put(`/meetings/${id}/complete`),
-  markNoShow: (id) => api.put(`/meetings/${id}/no-show`)
+  markNoShow: (id) => api.put(`/meetings/${id}/no-show`),
+  deleteSeries: (id, scope = 'all', reason) => 
+    api.delete(`/meetings/series/${id}`, { params: { scope }, data: { reason } }),
+  updateRecurrence: (id, frequency, endDate) =>
+    api.put(`/meetings/series/${id}/recurrence`, { frequency, endDate })
 };
 
 // Calendar endpoints
@@ -125,6 +129,20 @@ export const notificationsAPI = {
   markAllAsRead: () => api.put('/notifications/read-all'),
   delete: (id) => api.delete(`/notifications/${id}`),
   deleteAll: () => api.delete('/notifications')
+};
+
+// Admin endpoints
+export const adminAPI = {
+  // Job management (simplified - stats only)
+  getJobStats: () => api.get('/admin/jobs/stats'),
+  
+  // School Quarter management
+  getQuarters: () => api.get('/admin/quarters'),
+  getActiveQuarter: () => api.get('/admin/quarters/active'),
+  createQuarter: (data) => api.post('/admin/quarters', data),
+  updateQuarter: (id, data) => api.put(`/admin/quarters/${id}`, data),
+  activateQuarter: (id) => api.put(`/admin/quarters/${id}/activate`),
+  deleteQuarter: (id) => api.delete(`/admin/quarters/${id}`)
 };
 
 export default api;
