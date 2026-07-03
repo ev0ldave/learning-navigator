@@ -20,6 +20,7 @@ import Reports from './pages/Reports';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import AdminUsers from './pages/admin/Users';
+import SchoolQuarters from './pages/admin/SchoolQuarters';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -116,6 +117,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['administrator']}>
               <AdminUsers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/quarters"
+          element={
+            <ProtectedRoute allowedRoles={['administrator']}>
+              <SchoolQuarters />
             </ProtectedRoute>
           }
         />

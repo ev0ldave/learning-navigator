@@ -18,7 +18,11 @@ import {
   TextField,
   Avatar,
   List,
-  ListItem
+  ListItem,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
@@ -30,7 +34,9 @@ import {
   Person as PersonIcon,
   Phone as PhoneIcon,
   Add as AddIcon,
-  Note as NoteIcon
+  Note as NoteIcon,
+  Delete as DeleteIcon,
+  Repeat as RecurrenceIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
@@ -49,6 +55,15 @@ const MeetingDetail = () => {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  
+  // Delete series state
+  const [deleteSeriesDialogOpen, setDeleteSeriesDialogOpen] = useState(false);
+  const [deleteScope, setDeleteScope] = useState('all');
+  const [deleteReason, setDeleteReason] = useState('');
+  
+  // Edit recurrence state (navigators/admins only)
+  const [editRecurrenceDialogOpen, setEditRecurrenceDialogOpen] = useState(false);
+  const [newFrequency, setNewFrequency] = useState('weekly');
   
   // Notes state
   const [notes, setNotes] = useState([]);
@@ -154,6 +169,40 @@ const MeetingDetail = () => {
     }
   };
 
+  const handleDeleteSeries = async () => {
+    try {
+      setActionLoading(true);
+      await meetingsAPI.deleteSeries(id, deleteScope, deleteReason);
+      showSuccess(deleteScope === 'all' ? 'All meetings in series deleted' : 'This and future meetings deleted');
+      setDeleteSeriesDialogOpen(false);
+      navigate('/meetings');
+    } catch (err) {
+      showError(err.response?.data?.message || 'Failed to delete meeting series');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Edit recurrence handlers (navigators/admins only)
+  const handleOpenEditRecurrence = () => {
+    setNewFrequency(meeting.recurrence?.frequency || 'weekly');
+    setEditRecurrenceDialogOpen(true);
+  };
+
+  const handleUpdateRecurrence = async () => {
+    try {
+      setActionLoading(true);
+      const response = await meetingsAPI.updateRecurrence(id, newFrequency);
+      showSuccess(response.data.message || 'Recurrence updated successfully');
+      setEditRecurrenceDialogOpen(false);
+      fetchMeeting();
+    } catch (err) {
+      showError(err.response?.data?.message || 'Failed to update recurrence');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'scheduled': return 'primary';
@@ -197,6 +246,8 @@ const MeetingDetail = () => {
   const canCancel = ['scheduled', 'confirmed'].includes(meeting.status) && !isPast;
   const canComplete = meeting.status === 'scheduled' && isPast && isNavigator();
   const canMarkNoShow = meeting.status === 'scheduled' && isPast && isNavigator();
+  const isRecurring = meeting.isRecurring || meeting.recurrence?.parentMeetingId;
+  const canDeleteSeries = isRecurring && isNavigator();
 
   return (
     <Box>
@@ -249,6 +300,22 @@ const MeetingDetail = () => {
                     {meeting.duration} minutes
                   </Typography>
                 </Grid>
+
+                {meeting.isRecurring && (
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      Recurrence
+                    </Typography>
+                    <Typography variant="body1" sx={{ textTransform: 'capitalize' }}>
+                      {meeting.recurrence?.frequency || 'Weekly'}
+                      {meeting.recurrence?.endDate && (
+                        <Typography component="span" color="text.secondary">
+                          {' '}until {format(new Date(meeting.recurrence.endDate), 'MMM d, yyyy')}
+                        </Typography>
+                      )}
+                    </Typography>
+                  </Grid>
+                )}
 
                 {meeting.description && (
                   <Grid item xs={12}>
@@ -320,6 +387,26 @@ const MeetingDetail = () => {
                     disabled={actionLoading}
                   >
                     Mark as No-Show
+                  </Button>
+                )}
+                {/* Edit Recurrence - only for navigators/admins */}
+                {canDeleteSeries && isNavigator() && (
+                  <Button
+                    variant="outlined"
+                    startIcon={<RecurrenceIcon />}
+                    onClick={handleOpenEditRecurrence}
+                  >
+                    Edit Recurrence
+                  </Button>
+                )}
+                {canDeleteSeries && (
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    startIcon={<DeleteIcon />}
+                    onClick={() => setDeleteSeriesDialogOpen(true)}
+                  >
+                    Delete Series
                   </Button>
                 )}
               </Box>
@@ -518,6 +605,91 @@ const MeetingDetail = () => {
             disabled={actionLoading}
           >
             {actionLoading ? <CircularProgress size={24} /> : 'Cancel Meeting'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Series Dialog */}
+      <Dialog open={deleteSeriesDialogOpen} onClose={() => setDeleteSeriesDialogOpen(false)}>
+        <DialogTitle>Delete Recurring Meeting Series</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 2 }}>
+            This is a recurring meeting. What would you like to delete?
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 2 }}>
+            <Button
+              variant={deleteScope === 'all' ? 'contained' : 'outlined'}
+              onClick={() => setDeleteScope('all')}
+              fullWidth
+            >
+              Delete All Meetings in Series
+            </Button>
+            <Button
+              variant={deleteScope === 'future' ? 'contained' : 'outlined'}
+              onClick={() => setDeleteScope('future')}
+              fullWidth
+            >
+              Delete This and Future Meetings
+            </Button>
+          </Box>
+          <TextField
+            fullWidth
+            label="Reason for deletion (optional)"
+            value={deleteReason}
+            onChange={(e) => setDeleteReason(e.target.value)}
+            multiline
+            rows={2}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteSeriesDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteSeries}
+            color="error"
+            variant="contained"
+            disabled={actionLoading}
+          >
+            {actionLoading ? <CircularProgress size={24} /> : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Recurrence Dialog - for navigators/admins only */}
+      <Dialog open={editRecurrenceDialogOpen} onClose={() => setEditRecurrenceDialogOpen(false)}>
+        <DialogTitle>Edit Recurrence Frequency</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 2 }}>
+            Change how often this recurring meeting repeats. Future meetings will be rescheduled according to the new frequency.
+          </Typography>
+          <FormControl fullWidth sx={{ mt: 1 }}>
+            <InputLabel>Frequency</InputLabel>
+            <Select
+              value={newFrequency}
+              onChange={(e) => setNewFrequency(e.target.value)}
+              label="Frequency"
+            >
+              <MenuItem value="weekly">Weekly</MenuItem>
+              <MenuItem value="biweekly">Every 2 weeks</MenuItem>
+              <MenuItem value="triweekly">Every 3 weeks</MenuItem>
+              <MenuItem value="monthly">Monthly</MenuItem>
+            </Select>
+          </FormControl>
+          <Alert severity="info" sx={{ mt: 2 }}>
+            This will delete all future scheduled meetings in this series and recreate them with the new frequency. Past and completed meetings will not be affected.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditRecurrenceDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleUpdateRecurrence}
+            variant="contained"
+            disabled={actionLoading || newFrequency === meeting?.recurrence?.frequency}
+          >
+            {actionLoading ? <CircularProgress size={24} /> : 'Update Recurrence'}
           </Button>
         </DialogActions>
       </Dialog>

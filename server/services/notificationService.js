@@ -293,5 +293,234 @@ module.exports = {
   sendEmail,
   createNotification,
   sendMeetingNotification,
-  sendNoteSharedNotification
+  sendNoteSharedNotification,
+  // Direct versions for job queue (throw errors instead of catching)
+  sendEmailDirect,
+  sendMeetingNotificationDirect,
+  sendNoteSharedNotificationDirect
 };
+
+// Direct email send that throws errors for job queue retry
+async function sendEmailDirect(to, subject, html, text) {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+    console.log('Email configuration not set, skipping email send');
+    return { skipped: true };
+  }
+  
+  const transporter = createTransporter();
+  
+  const mailOptions = {
+    from: process.env.EMAIL_FROM || 'Learning Navigator <noreply@learningnavigator.com>',
+    to,
+    subject,
+    html,
+    text
+  };
+  
+  const result = await transporter.sendMail(mailOptions);
+  console.log('Email sent:', result.messageId);
+  return result;
+}
+
+// Direct meeting notification that throws errors
+async function sendMeetingNotificationDirect(meeting, type) {
+  const student = await User.findById(meeting.student);
+  const navigator = await User.findById(meeting.navigator);
+  
+  if (!student || !navigator) {
+    throw new Error('Could not find student or navigator for notification');
+  }
+  
+  const formatDate = (date) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      timeZone: 'America/Los_Angeles',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+  
+  const formatTime = (date) => {
+    return new Date(date).toLocaleTimeString('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+  
+  let emailSubject, emailBody, notificationTitle, notificationMessage;
+  
+  switch (type) {
+    case 'scheduled':
+      emailSubject = 'New Meeting Scheduled - Learning Navigator';
+      notificationTitle = 'Meeting Scheduled';
+      notificationMessage = `A new meeting has been scheduled for ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
+      emailBody = `
+        <h2>Meeting Scheduled</h2>
+        <p>A new meeting has been scheduled:</p>
+        <ul>
+          <li><strong>Title:</strong> ${meeting.title}</li>
+          <li><strong>Date:</strong> ${formatDate(meeting.startTime)}</li>
+          <li><strong>Time:</strong> ${formatTime(meeting.startTime)} - ${formatTime(meeting.endTime)}</li>
+          <li><strong>Location:</strong> ${meeting.location}</li>
+          ${meeting.meetingLink ? `<li><strong>Meeting Link:</strong> <a href="${meeting.meetingLink}">${meeting.meetingLink}</a></li>` : ''}
+        </ul>
+      `;
+      break;
+      
+    case 'cancelled':
+      emailSubject = 'Meeting Cancelled - Learning Navigator';
+      notificationTitle = 'Meeting Cancelled';
+      notificationMessage = `Your meeting on ${formatDate(meeting.startTime)} has been cancelled`;
+      emailBody = `
+        <h2>Meeting Cancelled</h2>
+        <p>The following meeting has been cancelled:</p>
+        <ul>
+          <li><strong>Title:</strong> ${meeting.title}</li>
+          <li><strong>Original Date:</strong> ${formatDate(meeting.startTime)}</li>
+          <li><strong>Original Time:</strong> ${formatTime(meeting.startTime)}</li>
+          ${meeting.cancellationReason ? `<li><strong>Reason:</strong> ${meeting.cancellationReason}</li>` : ''}
+        </ul>
+      `;
+      break;
+      
+    case 'rescheduled':
+      emailSubject = 'Meeting Rescheduled - Learning Navigator';
+      notificationTitle = 'Meeting Rescheduled';
+      notificationMessage = `Your meeting has been rescheduled to ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
+      emailBody = `
+        <h2>Meeting Rescheduled</h2>
+        <p>Your meeting has been rescheduled:</p>
+        <ul>
+          <li><strong>Title:</strong> ${meeting.title}</li>
+          ${meeting.rescheduledFrom ? `<li><strong>Previous Date:</strong> ${formatDate(meeting.rescheduledFrom)}</li>` : ''}
+          <li><strong>New Date:</strong> ${formatDate(meeting.startTime)}</li>
+          <li><strong>New Time:</strong> ${formatTime(meeting.startTime)} - ${formatTime(meeting.endTime)}</li>
+          <li><strong>Location:</strong> ${meeting.location}</li>
+          ${meeting.meetingLink ? `<li><strong>Meeting Link:</strong> <a href="${meeting.meetingLink}">${meeting.meetingLink}</a></li>` : ''}
+        </ul>
+      `;
+      break;
+      
+    case 'reminder':
+      emailSubject = 'Meeting Reminder - Learning Navigator';
+      notificationTitle = 'Meeting Reminder';
+      notificationMessage = `Reminder: You have a meeting on ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
+      emailBody = `
+        <h2>Meeting Reminder</h2>
+        <p>This is a reminder for your upcoming meeting:</p>
+        <ul>
+          <li><strong>Title:</strong> ${meeting.title}</li>
+          <li><strong>Date:</strong> ${formatDate(meeting.startTime)}</li>
+          <li><strong>Time:</strong> ${formatTime(meeting.startTime)} - ${formatTime(meeting.endTime)}</li>
+          <li><strong>Location:</strong> ${meeting.location}</li>
+          ${meeting.meetingLink ? `<li><strong>Meeting Link:</strong> <a href="${meeting.meetingLink}">${meeting.meetingLink}</a></li>` : ''}
+        </ul>
+      `;
+      break;
+      
+    default:
+      return;
+  }
+  
+  const notificationType = `meeting_${type}`;
+  const emailErrors = [];
+  
+  // Send to student - collect errors but continue
+  if (student.notificationPreferences?.email !== false) {
+    try {
+      await sendEmailDirect(student.email, emailSubject, emailBody);
+    } catch (emailError) {
+      emailErrors.push(`Student email: ${emailError.message}`);
+    }
+  }
+  
+  // Create in-app notification for student (always succeeds locally)
+  await createNotification({
+    recipientId: student._id,
+    senderId: navigator._id,
+    type: notificationType,
+    title: notificationTitle,
+    message: notificationMessage,
+    meetingId: meeting._id
+  });
+  
+  // Send to navigator (except reminders)
+  if (type !== 'reminder') {
+    if (navigator.notificationPreferences?.email !== false) {
+      try {
+        await sendEmailDirect(navigator.email, emailSubject, emailBody);
+      } catch (emailError) {
+        emailErrors.push(`Navigator email: ${emailError.message}`);
+      }
+    }
+    
+    await createNotification({
+      recipientId: navigator._id,
+      senderId: student._id,
+      type: notificationType,
+      title: notificationTitle,
+      message: notificationMessage,
+      meetingId: meeting._id
+    });
+  }
+  
+  // Update meeting notification history
+  meeting.notificationsSent = meeting.notificationsSent || [];
+  meeting.notificationsSent.push({
+    type,
+    sentAt: new Date(),
+    sentTo: [student._id, navigator._id]
+  });
+  await meeting.save();
+  
+  // If all emails failed, throw for retry
+  const expectedEmails = type === 'reminder' ? 1 : 2;
+  if (emailErrors.length >= expectedEmails && process.env.EMAIL_USER) {
+    throw new Error(`All email sends failed: ${emailErrors.join('; ')}`);
+  }
+  
+  return { success: true, emailErrors: emailErrors.length > 0 ? emailErrors : undefined };
+}
+
+// Direct note notification that throws errors
+async function sendNoteSharedNotificationDirect(note, student) {
+  const navigator = await User.findById(note.navigator);
+  
+  if (!navigator) {
+    throw new Error('Could not find navigator for notification');
+  }
+  
+  const emailSubject = 'New Session Notes Shared - Learning Navigator';
+  const emailBody = `
+    <h2>Session Notes Shared</h2>
+    <p>Your learning navigator ${navigator.firstName} ${navigator.lastName} has shared notes from your session:</p>
+    <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0;">
+      <h3>${note.title}</h3>
+      <p>${note.content}</p>
+    </div>
+    <p>Log in to the Learning Navigator app to view the full notes.</p>
+  `;
+  
+  // Send email - throw if fails
+  if (student.notificationPreferences?.email !== false) {
+    await sendEmailDirect(student.email, emailSubject, emailBody);
+    note.emailSent = true;
+    note.emailSentAt = new Date();
+    await note.save();
+  }
+  
+  // Create in-app notification
+  await createNotification({
+    recipientId: student._id,
+    senderId: navigator._id,
+    type: 'note_shared',
+    title: 'Session Notes Shared',
+    message: `${navigator.firstName} ${navigator.lastName} shared notes from your session: "${note.title}"`,
+    noteId: note._id
+  });
+  
+  return { success: true };
+}

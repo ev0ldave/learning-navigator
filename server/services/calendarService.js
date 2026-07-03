@@ -147,7 +147,7 @@ const createCalendarEvent = async (meeting) => {
       const navigatorEvent = await navigatorCalendar.events.insert({
         calendarId: navigatorCalendarId,
         resource: event,
-        sendUpdates: 'all'
+        sendUpdates: 'none'  // Don't send invites - events are created directly on each user's calendar
       });
       
       meeting.navigatorCalendarEventId = navigatorEvent.data.id;
@@ -214,7 +214,7 @@ const updateCalendarEvent = async (meeting) => {
           calendarId: navigatorCalendarId,
           eventId: meeting.navigatorCalendarEventId,
           resource: event,
-          sendUpdates: 'all'
+          sendUpdates: 'none'  // Don't send invites - events are updated directly on each user's calendar
         });
       } catch (navError) {
         console.error('Could not update navigator calendar event:', navError.message);
@@ -263,7 +263,7 @@ const deleteCalendarEvent = async (meeting) => {
         await navigatorCalendar.events.delete({
           calendarId: navigatorCalendarId,
           eventId: meeting.navigatorCalendarEventId,
-          sendUpdates: 'all'
+          sendUpdates: 'none'
         });
       } catch (navError) {
         console.error('Could not delete navigator calendar event:', navError.message);
@@ -318,5 +318,200 @@ module.exports = {
   updateCalendarEvent,
   deleteCalendarEvent,
   getCalendarEvents,
-  getOrCreateAppCalendar
+  getOrCreateAppCalendar,
+  // Direct versions for job queue (throw errors instead of catching)
+  createCalendarEventDirect,
+  updateCalendarEventDirect,
+  deleteCalendarEventDirect
 };
+
+// Direct versions that throw errors for job queue retry handling
+async function createCalendarEventDirect(meeting) {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    console.log('Google Calendar not configured, skipping event creation');
+    return { skipped: true };
+  }
+  
+  const student = await User.findById(meeting.student);
+  const navigator = await User.findById(meeting.navigator);
+  
+  if (!student || !navigator) {
+    throw new Error('Could not find meeting participants');
+  }
+  
+  const event = {
+    summary: meeting.title,
+    description: meeting.description || `Learning Navigator session with ${navigator.firstName} ${navigator.lastName}`,
+    start: {
+      dateTime: meeting.startTime.toISOString(),
+      timeZone: 'America/Los_Angeles'
+    },
+    end: {
+      dateTime: meeting.endTime.toISOString(),
+      timeZone: 'America/Los_Angeles'
+    },
+    attendees: [
+      { email: student.email },
+      { email: navigator.email }
+    ],
+    reminders: {
+      useDefault: false,
+      overrides: [
+        { method: 'email', minutes: 24 * 60 },
+        { method: 'popup', minutes: 30 }
+      ]
+    }
+  };
+  
+  if (meeting.location === 'virtual' && meeting.meetingLink) {
+    event.conferenceData = {
+      conferenceSolution: {
+        key: { type: 'hangoutsMeet' }
+      }
+    };
+  } else if (meeting.location === 'in_person') {
+    event.location = 'In-person meeting';
+  }
+  
+  const errors = [];
+  
+  // Try navigator calendar - throw if fails
+  try {
+    const navigatorCalendarId = await getOrCreateAppCalendar(navigator._id);
+    const navigatorCalendar = await getCalendarClient(navigator._id);
+    const navigatorEvent = await navigatorCalendar.events.insert({
+      calendarId: navigatorCalendarId,
+      resource: event,
+      sendUpdates: 'none'
+    });
+    meeting.navigatorCalendarEventId = navigatorEvent.data.id;
+    meeting.googleEventId = navigatorEvent.data.id;
+  } catch (navError) {
+    errors.push(`Navigator: ${navError.message}`);
+  }
+  
+  // Try student calendar
+  try {
+    const studentCalendarId = await getOrCreateAppCalendar(student._id);
+    const studentCalendar = await getCalendarClient(student._id);
+    const studentEvent = await studentCalendar.events.insert({
+      calendarId: studentCalendarId,
+      resource: event,
+      sendUpdates: 'none'
+    });
+    meeting.studentCalendarEventId = studentEvent.data.id;
+  } catch (studError) {
+    errors.push(`Student: ${studError.message}`);
+  }
+  
+  await meeting.save();
+  
+  // If both failed, throw to trigger retry
+  if (errors.length === 2) {
+    throw new Error(`Calendar creation failed: ${errors.join('; ')}`);
+  }
+  
+  return { success: true, partialErrors: errors.length > 0 ? errors : undefined };
+}
+
+async function updateCalendarEventDirect(meeting) {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return { skipped: true };
+  }
+  
+  const student = await User.findById(meeting.student);
+  const navigator = await User.findById(meeting.navigator);
+  
+  const event = {
+    summary: meeting.title,
+    description: meeting.description,
+    start: {
+      dateTime: meeting.startTime.toISOString(),
+      timeZone: 'America/Los_Angeles'
+    },
+    end: {
+      dateTime: meeting.endTime.toISOString(),
+      timeZone: 'America/Los_Angeles'
+    }
+  };
+  
+  const errors = [];
+  
+  if (meeting.navigatorCalendarEventId) {
+    try {
+      const navigatorCalendarId = await getOrCreateAppCalendar(navigator._id);
+      const navigatorCalendar = await getCalendarClient(navigator._id);
+      await navigatorCalendar.events.update({
+        calendarId: navigatorCalendarId,
+        eventId: meeting.navigatorCalendarEventId,
+        resource: event,
+        sendUpdates: 'none'
+      });
+    } catch (navError) {
+      errors.push(`Navigator: ${navError.message}`);
+    }
+  }
+  
+  if (meeting.studentCalendarEventId) {
+    try {
+      const studentCalendarId = await getOrCreateAppCalendar(student._id);
+      const studentCalendar = await getCalendarClient(student._id);
+      await studentCalendar.events.update({
+        calendarId: studentCalendarId,
+        eventId: meeting.studentCalendarEventId,
+        resource: event,
+        sendUpdates: 'none'
+      });
+    } catch (studError) {
+      errors.push(`Student: ${studError.message}`);
+    }
+  }
+  
+  if (errors.length === 2) {
+    throw new Error(`Calendar update failed: ${errors.join('; ')}`);
+  }
+  
+  return { success: true, partialErrors: errors.length > 0 ? errors : undefined };
+}
+
+async function deleteCalendarEventDirect({ navigatorCalendarEventId, studentCalendarEventId, navigatorId, studentId }) {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return { skipped: true };
+  }
+  
+  const errors = [];
+  
+  if (navigatorCalendarEventId && navigatorId) {
+    try {
+      const navigatorCalendarId = await getOrCreateAppCalendar(navigatorId);
+      const navigatorCalendar = await getCalendarClient(navigatorId);
+      await navigatorCalendar.events.delete({
+        calendarId: navigatorCalendarId,
+        eventId: navigatorCalendarEventId,
+        sendUpdates: 'none'
+      });
+    } catch (navError) {
+      errors.push(`Navigator: ${navError.message}`);
+    }
+  }
+  
+  if (studentCalendarEventId && studentId) {
+    try {
+      const studentCalendarId = await getOrCreateAppCalendar(studentId);
+      const studentCalendar = await getCalendarClient(studentId);
+      await studentCalendar.events.delete({
+        calendarId: studentCalendarId,
+        eventId: studentCalendarEventId,
+        sendUpdates: 'none'
+      });
+    } catch (studError) {
+      errors.push(`Student: ${studError.message}`);
+    }
+  }
+  
+  if (errors.length === 2) {
+    throw new Error(`Calendar deletion failed: ${errors.join('; ')}`);
+  }
+  
+  return { success: true, partialErrors: errors.length > 0 ? errors : undefined };
+}

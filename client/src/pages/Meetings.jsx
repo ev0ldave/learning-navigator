@@ -7,7 +7,7 @@ import {
   Typography,
   Button,
   List,
-  ListItem,
+  ListItemButton,
   ListItemText,
   ListItemAvatar,
   Avatar,
@@ -154,9 +154,8 @@ const Meetings = () => {
           ) : (
             <List>
               {filteredMeetings.map((meeting) => (
-                <ListItem
+                <ListItemButton
                   key={meeting._id}
-                  button
                   onClick={() => navigate(`/meetings/${meeting._id}`)}
                   sx={{ borderRadius: 1, mb: 1, bgcolor: 'background.default' }}
                 >
@@ -193,7 +192,7 @@ const Meetings = () => {
                       color={getStatusColor(meeting.status)}
                     />
                   </Box>
-                </ListItem>
+                </ListItemButton>
               ))}
             </List>
           )}
