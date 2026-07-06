@@ -243,9 +243,10 @@ const MeetingDetail = () => {
   }
 
   const isPast = new Date(meeting.endTime) < new Date();
+  const tenMinutesAfterStart = new Date(meeting.startTime).getTime() + (10 * 60 * 1000) < Date.now();
   const canCancel = ['scheduled', 'confirmed'].includes(meeting.status) && !isPast;
   const canComplete = meeting.status === 'scheduled' && isPast && isNavigator();
-  const canMarkNoShow = meeting.status === 'scheduled' && isPast && isNavigator();
+  const canMarkNoShow = meeting.status === 'scheduled' && tenMinutesAfterStart && isNavigator();
   const isRecurring = meeting.isRecurring || meeting.recurrence?.parentMeetingId;
   const canDeleteSeries = isRecurring && isNavigator();
 
