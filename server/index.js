@@ -5,7 +5,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const session = require('express-session');
 const passport = require('passport');
-const rateLimit = require('express-rate-limit');
 const mongoSanitize = require('express-mongo-sanitize');
 
 // Import routes
@@ -41,36 +40,13 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// CORS configuration - must be before rate limiter for preflight requests
+// CORS configuration
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
-// Rate limiting (skip in test and development environments)
-if (process.env.NODE_ENV === 'production') {
-  const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
-    message: { success: false, message: 'Too many requests, please try again later' },
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
-  app.use('/api/', limiter);
-
-  // Stricter rate limit for auth endpoints
-  const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10, // limit each IP to 10 auth requests per windowMs
-    message: { success: false, message: 'Too many login attempts, please try again later' },
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
-  app.use('/api/auth/local', authLimiter);
-  app.use('/api/auth/google', authLimiter);
-}
 
 // Body parsing middleware
 app.use(express.json({ limit: '10kb' })); // Limit body size
