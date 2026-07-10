@@ -157,8 +157,9 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
     
     try {
       setLoadingSlots(true);
-      // Send date as YYYY-MM-DD to avoid timezone conversion issues
-      const dateStr = format(formData.date, 'yyyy-MM-dd');
+      // Send date as YYYY-MM-DD in Pacific timezone to avoid timezone conversion issues
+      // Use toLocaleDateString with Pacific timezone to get the correct calendar date
+      const dateStr = formData.date.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
       const response = await calendarAPI.getAvailability(
         formData.navigatorId,
         dateStr

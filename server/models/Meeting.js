@@ -119,6 +119,14 @@ const meetingSchema = new mongoose.Schema({
       ref: 'User'
     }]
   }],
+  // SMS reminders sent (15 minutes before meeting)
+  smsRemindersSent: [{
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    sentAt: Date
+  }],
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

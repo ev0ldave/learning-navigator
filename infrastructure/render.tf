@@ -18,8 +18,8 @@ resource "render_web_service" "backend" {
         paths         = ["server/**", "package.json"]
         ignored_paths = ["client/**", "infrastructure/**"]
       }
-      repo_url      = "https://github.com/${var.github_repo}"
-      runtime       = "node"
+      repo_url = "https://github.com/${var.github_repo}"
+      runtime  = "node"
     }
   }
 
@@ -77,6 +77,12 @@ resource "render_web_service" "backend" {
     }
     ZOOM_LINK = {
       value = var.zoom_link
+    }
+    GOOGLE_VOICE_EMAIL = {
+      value = var.google_voice_email
+    }
+    GOOGLE_VOICE_PASSWORD = {
+      value = var.google_voice_password
     }
     # CLIENT_URL will be set after Vercel deployment
     CLIENT_URL = {
