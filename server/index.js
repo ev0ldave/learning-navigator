@@ -21,6 +21,9 @@ const adminRoutes = require('./routes/admin');
 // Import passport config
 require('./config/passport');
 
+// Import reminder scheduler
+const { startReminderScheduler } = require('./services/reminderScheduler');
+
 const app = express();
 
 // Validate required secrets in production
@@ -140,6 +143,9 @@ if (process.env.NODE_ENV !== 'test') {
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      
+      // Start the SMS reminder scheduler
+      startReminderScheduler();
     });
   });
 }

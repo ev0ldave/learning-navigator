@@ -6,6 +6,9 @@ import { useAuth } from './contexts/AuthContext';
 // Layout
 import MainLayout from './components/layout/MainLayout';
 
+// Components
+import PhonePromptModal from './components/PhonePromptModal';
+
 // Pages
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
@@ -57,7 +60,9 @@ function App() {
   }
 
   return (
-    <Routes>
+    <>
+      <PhonePromptModal />
+      <Routes>
       {/* Public routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
@@ -133,6 +138,7 @@ function App() {
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
+    </>
   );
 }
 
