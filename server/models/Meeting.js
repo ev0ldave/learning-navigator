@@ -84,6 +84,11 @@ const meetingSchema = new mongoose.Schema({
   meetingLink: {
     type: String
   },
+  // Phone number for phone meetings
+  phoneNumber: {
+    type: String,
+    trim: true
+  },
   // Cancellation/Reschedule info
   cancelledBy: {
     type: mongoose.Schema.Types.ObjectId,

@@ -5,6 +5,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { usersAPI } from '../services/api';
+import { formatPhoneNumber } from '../utils/phoneFormat';
 
 const Profile = () => {
   const { user, updateUser } = useAuth();
@@ -13,7 +14,7 @@ const Profile = () => {
   const [formData, setFormData] = useState({
     firstName: user?.firstName || '',
     lastName: user?.lastName || '',
-    phone: user?.phone || '',
+    phone: formatPhoneNumber(user?.phone || ''),
     bio: user?.bio || ''
   });
 
@@ -78,7 +79,8 @@ const Profile = () => {
                       fullWidth
                       label="Phone"
                       value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      onChange={(e) => setFormData({ ...formData, phone: formatPhoneNumber(e.target.value) })}
+                      placeholder="(555) 123-4567"
                     />
                   </Grid>
                   <Grid item xs={12}>
