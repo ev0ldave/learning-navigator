@@ -142,6 +142,23 @@ variable "zoom_link" {
 }
 
 # =============================================================================
+# SMS Configuration (Google Voice via gsms)
+# =============================================================================
+
+variable "google_voice_email" {
+  description = "Google Voice email for SMS notifications (optional)"
+  type        = string
+  default     = ""
+}
+
+variable "google_voice_password" {
+  description = "Google Voice password for SMS notifications (optional)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+# =============================================================================
 # GitHub Repository (for Render and Vercel deployments)
 # =============================================================================
 

@@ -216,15 +216,39 @@ router.get('/me', isAuthenticated, async (req, res) => {
       .populate('assignedNavigator', 'firstName lastName email profilePicture')
       .populate('students', 'firstName lastName email profilePicture');
     
+    // Check if we should prompt for phone number (first login, no phone set)
+    const promptForPhone = !user.phone && !user.phonePromptShown;
+    
     res.json({
       success: true,
-      user
+      user,
+      promptForPhone
     });
   } catch (error) {
     console.error('Get current user error:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching user'
+    });
+  }
+});
+
+// @route   POST /api/auth/dismiss-phone-prompt
+// @desc    Mark phone prompt as shown (user dismissed or skipped)
+// @access  Private
+router.post('/dismiss-phone-prompt', isAuthenticated, async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user._id, { phonePromptShown: true });
+    
+    res.json({
+      success: true,
+      message: 'Phone prompt dismissed'
+    });
+  } catch (error) {
+    console.error('Dismiss phone prompt error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error dismissing prompt'
     });
   }
 });

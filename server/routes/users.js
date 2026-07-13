@@ -253,10 +253,32 @@ router.put('/:id',
       const updateData = {};
       if (firstName) updateData.firstName = firstName;
       if (lastName) updateData.lastName = lastName;
-      if (phone !== undefined) updateData.phone = phone;
+      if (phone !== undefined) {
+        updateData.phone = phone;
+        // Mark phone prompt as shown when user provides a phone number
+        if (phone && phone.trim()) {
+          updateData.phonePromptShown = true;
+        }
+      }
       if (bio !== undefined) updateData.bio = bio;
       if (profilePicture !== undefined) updateData.profilePicture = profilePicture;
-      if (notificationPreferences) updateData.notificationPreferences = notificationPreferences;
+      if (notificationPreferences) {
+        // Automatically disable smsReminders if no phone number
+        if (notificationPreferences.smsReminders && !phone) {
+          // Check if phone is being cleared or if user already has no phone
+          const existingUser = await User.findById(req.params.id);
+          const hasPhone = phone !== '' && (phone || existingUser?.phone);
+          if (!hasPhone) {
+            notificationPreferences.smsReminders = false;
+          }
+        }
+        updateData.notificationPreferences = notificationPreferences;
+      }
+      
+      // If phone is being cleared, also disable smsReminders
+      if (phone === '' || phone === null) {
+        updateData['notificationPreferences.smsReminders'] = false;
+      }
       
       const user = await User.findByIdAndUpdate(
         req.params.id,

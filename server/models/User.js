@@ -71,6 +71,10 @@ const userSchema = new mongoose.Schema({
     meetingChanges: {
       type: Boolean,
       default: true
+    },
+    smsReminders: {
+      type: Boolean,
+      default: false
     }
   },
   // For learning navigators - their availability
@@ -99,6 +103,11 @@ const userSchema = new mongoose.Schema({
   },
   lastLogin: {
     type: Date
+  },
+  // Track if user has been prompted for phone number (for SMS reminders)
+  phonePromptShown: {
+    type: Boolean,
+    default: false
   },
   createdAt: {
     type: Date,
