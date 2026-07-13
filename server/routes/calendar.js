@@ -267,15 +267,21 @@ function getStatusColor(status) {
 function generateWeeklyAvailabilityEvents(weeklyHours, startDate, endDate) {
   const events = [];
   
-  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-    const currentDate = new Date(d);
-    const dayOfWeek = getPacificDayOfWeek(currentDate);
+  // Convert to Pacific dates for proper iteration
+  // Get the Pacific calendar dates for start and end
+  const startPacific = getPacificComponents(new Date(startDate));
+  const endPacific = getPacificComponents(new Date(endDate));
+  
+  // Start iteration at noon Pacific to avoid DST edge cases when incrementing
+  let currentPacific = createPacificDate(startPacific.year, startPacific.month, startPacific.day, 12, 0, 0);
+  const endPacificDate = createPacificDate(endPacific.year, endPacific.month, endPacific.day, 12, 0, 0);
+  
+  while (currentPacific <= endPacificDate) {
+    const { year, month, day, dayOfWeek } = getPacificComponents(currentPacific);
     const dayName = DAYS[dayOfWeek];
     const dayAvailability = weeklyHours[dayName];
     
     if (dayAvailability && dayAvailability.enabled && dayAvailability.slots) {
-      const { year, month, day } = getPacificComponents(currentDate);
-      
       dayAvailability.slots.forEach((slot, index) => {
         const [startHour, startMin] = slot.startTime.split(':').map(Number);
         const [endHour, endMin] = slot.endTime.split(':').map(Number);
@@ -284,8 +290,11 @@ function generateWeeklyAvailabilityEvents(weeklyHours, startDate, endDate) {
         const slotStart = createPacificDate(year, month, day, startHour, startMin, 0);
         const slotEnd = createPacificDate(year, month, day, endHour, endMin, 0);
         
+        // Use Pacific date for the event ID
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        
         events.push({
-          id: `availability-${currentDate.toISOString().split('T')[0]}-${index}`,
+          id: `availability-${dateStr}-${index}`,
           title: 'Available',
           start: slotStart,
           end: slotEnd,
@@ -295,6 +304,9 @@ function generateWeeklyAvailabilityEvents(weeklyHours, startDate, endDate) {
         });
       });
     }
+    
+    // Move to next day (add 24 hours at noon is safe across DST transitions)
+    currentPacific = new Date(currentPacific.getTime() + 24 * 60 * 60 * 1000);
   }
   
   return events;

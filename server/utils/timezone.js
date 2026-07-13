@@ -28,11 +28,18 @@ function getPacificComponents(date) {
   
   const weekdayMap = { 'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6 };
   
+  // Some ICU implementations return "24" for midnight instead of "00"
+  // Handle this edge case by converting 24 to 0
+  let hours = parseInt(get('hour'));
+  if (hours === 24) {
+    hours = 0;
+  }
+  
   return {
     year: parseInt(get('year')),
     month: parseInt(get('month')) - 1, // 0-indexed like JS Date
     day: parseInt(get('day')),
-    hours: parseInt(get('hour')),
+    hours: hours,
     minutes: parseInt(get('minute')),
     seconds: parseInt(get('second')),
     dayOfWeek: weekdayMap[get('weekday')]
