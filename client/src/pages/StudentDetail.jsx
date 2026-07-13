@@ -7,6 +7,7 @@ import {
 import { ArrowBack as BackIcon, Note as NoteIcon, EventNote as MeetingIcon } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { usersAPI, notesAPI, meetingsAPI } from '../services/api';
+import { formatPhoneNumber } from '../utils/phoneFormat';
 
 const StudentDetail = () => {
   const { id } = useParams();
@@ -60,7 +61,7 @@ const StudentDetail = () => {
               </Avatar>
               <Typography variant="h5">{student.firstName} {student.lastName}</Typography>
               <Typography color="text.secondary">{student.email}</Typography>
-              {student.phone && <Typography variant="body2">{student.phone}</Typography>}
+              {student.phone && <Typography variant="body2">{formatPhoneNumber(student.phone)}</Typography>}
             </CardContent>
           </Card>
         </Grid>

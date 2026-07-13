@@ -42,6 +42,7 @@ import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { meetingsAPI, notesAPI } from '../services/api';
+import { formatPhoneNumber } from '../utils/phoneFormat';
 
 const MeetingDetail = () => {
   const { id } = useParams();
@@ -342,6 +343,20 @@ const MeetingDetail = () => {
                     >
                       Join Meeting
                     </Button>
+                  </Grid>
+                )}
+
+                {meeting.location === 'phone' && meeting.phoneNumber && (
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      Phone Number
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <PhoneIcon color="action" />
+                      <Typography variant="body1">
+                        {formatPhoneNumber(meeting.phoneNumber)}
+                      </Typography>
+                    </Box>
                   </Grid>
                 )}
 

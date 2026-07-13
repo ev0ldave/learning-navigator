@@ -189,7 +189,8 @@ router.post('/',
     body('description').optional().trim(),
     body('isRecurring').optional().isBoolean(),
     body('recurrence.frequency').optional().isIn(['weekly', 'biweekly', 'triweekly', 'monthly']),
-    body('location').optional().isIn(['in_person', 'virtual', 'phone'])
+    body('location').optional().isIn(['in_person', 'virtual', 'phone']),
+    body('phoneNumber').optional().trim()
   ],
   async (req, res) => {
     try {
@@ -210,7 +211,8 @@ router.post('/',
         isRecurring,
         recurrence,
         location,
-        meetingLink
+        meetingLink,
+        phoneNumber
       } = req.body;
       
       // For students, they can only book for themselves
@@ -389,6 +391,7 @@ router.post('/',
         } : undefined,
         location: location || 'virtual',
         meetingLink,
+        phoneNumber: location === 'phone' ? phoneNumber : undefined,
         createdBy: req.user._id
       });
       
@@ -436,7 +439,8 @@ router.put('/:id',
     body('endTime').optional().isISO8601(),
     body('title').optional().trim(),
     body('description').optional().trim(),
-    body('location').optional().isIn(['in_person', 'virtual', 'phone'])
+    body('location').optional().isIn(['in_person', 'virtual', 'phone']),
+    body('phoneNumber').optional().trim()
   ],
   async (req, res) => {
     try {
@@ -470,7 +474,7 @@ router.put('/:id',
         });
       }
       
-      const { startTime, endTime, title, description, location, meetingLink } = req.body;
+      const { startTime, endTime, title, description, location, meetingLink, phoneNumber } = req.body;
       const isRescheduling = startTime || endTime;
       
       // Check for conflicts if rescheduling
@@ -507,6 +511,9 @@ router.put('/:id',
       if (description !== undefined) meeting.description = description;
       if (location) meeting.location = location;
       if (meetingLink !== undefined) meeting.meetingLink = meetingLink;
+      if (phoneNumber !== undefined) {
+        meeting.phoneNumber = location === 'phone' || meeting.location === 'phone' ? phoneNumber : undefined;
+      }
       
       await meeting.save();
       
@@ -993,6 +1000,7 @@ async function createRecurringMeetings(parentMeeting, endDate) {
       },
       location: parentMeeting.location,
       meetingLink: parentMeeting.meetingLink,
+      phoneNumber: parentMeeting.phoneNumber,
       createdBy: parentMeeting.createdBy
     });
     

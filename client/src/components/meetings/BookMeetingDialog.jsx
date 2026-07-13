@@ -24,6 +24,7 @@ import { addMinutes, addDays, format, startOfDay, isAfter } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { usersAPI, meetingsAPI, calendarAPI, adminAPI } from '../../services/api';
+import { formatPhoneNumber } from '../../utils/phoneFormat';
 
 // Format time in Pacific timezone
 const formatPacificTime = (date) => {
@@ -56,6 +57,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
     title: 'Learning Navigator Session',
     description: '',
     location: 'virtual',
+    phoneNumber: formatPhoneNumber(user?.phone || ''),
     isRecurring: false,
     recurrenceFrequency: 'weekly',
     recurrenceEndDate: null
@@ -248,6 +250,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
         title: formData.title,
         description: formData.description,
         location: formData.location,
+        phoneNumber: formData.location === 'phone' ? formData.phoneNumber : undefined,
         isRecurring: formData.isRecurring,
         recurrence: recurrenceData
       };
@@ -479,11 +482,24 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
                 label="Location"
               >
                 <MenuItem value="virtual">Virtual</MenuItem>
-                <MenuItem value="in_person">In Person</MenuItem>
                 <MenuItem value="phone">Phone</MenuItem>
               </Select>
             </FormControl>
           </Grid>
+
+          {/* Phone Number - only shown for phone meetings */}
+          {formData.location === 'phone' && (
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Phone Number"
+                value={formData.phoneNumber}
+                onChange={(e) => setFormData({ ...formData, phoneNumber: formatPhoneNumber(e.target.value) })}
+                placeholder="(555) 123-4567"
+                helperText="This number will be included in meeting notifications"
+              />
+            </Grid>
+          )}
 
           {/* Title */}
           <Grid item xs={12}>

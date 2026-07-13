@@ -120,9 +120,12 @@ const sendMeetingNotification = async (meeting, type) => {
           <p>A new meeting has been scheduled:</p>
           <ul>
             <li><strong>Title:</strong> ${meeting.title}</li>
+            <li><strong>Student:</strong> ${student.firstName} ${student.lastName}</li>
+            <li><strong>Navigator:</strong> ${navigator.firstName} ${navigator.lastName}</li>
             <li><strong>Date:</strong> ${formatDate(meeting.startTime)}</li>
             <li><strong>Time:</strong> ${formatTime(meeting.startTime)} - ${formatTime(meeting.endTime)}</li>
             <li><strong>Location:</strong> ${meeting.location}</li>
+            ${meeting.location === 'phone' && meeting.phoneNumber ? `<li><strong>Phone Number:</strong> ${meeting.phoneNumber}</li>` : ''}
             ${meeting.meetingLink ? `<li><strong>Meeting Link:</strong> <a href="${meeting.meetingLink}">${meeting.meetingLink}</a></li>` : ''}
           </ul>
         `;
@@ -153,10 +156,13 @@ const sendMeetingNotification = async (meeting, type) => {
           <p>Your meeting has been rescheduled:</p>
           <ul>
             <li><strong>Title:</strong> ${meeting.title}</li>
+            <li><strong>Student:</strong> ${student.firstName} ${student.lastName}</li>
+            <li><strong>Navigator:</strong> ${navigator.firstName} ${navigator.lastName}</li>
             ${meeting.rescheduledFrom ? `<li><strong>Previous Date:</strong> ${formatDate(meeting.rescheduledFrom)}</li>` : ''}
             <li><strong>New Date:</strong> ${formatDate(meeting.startTime)}</li>
             <li><strong>New Time:</strong> ${formatTime(meeting.startTime)} - ${formatTime(meeting.endTime)}</li>
             <li><strong>Location:</strong> ${meeting.location}</li>
+            ${meeting.location === 'phone' && meeting.phoneNumber ? `<li><strong>Phone Number:</strong> ${meeting.phoneNumber}</li>` : ''}
             ${meeting.meetingLink ? `<li><strong>Meeting Link:</strong> <a href="${meeting.meetingLink}">${meeting.meetingLink}</a></li>` : ''}
           </ul>
         `;
@@ -165,15 +171,18 @@ const sendMeetingNotification = async (meeting, type) => {
       case 'reminder':
         emailSubject = 'Meeting Reminder - Learning Navigator';
         notificationTitle = 'Meeting Reminder';
-        notificationMessage = `Reminder: You have a meeting on ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
+        notificationMessage = `Reminder: You have a meeting with ${student.firstName} ${student.lastName} on ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
         emailBody = `
           <h2>Meeting Reminder</h2>
           <p>This is a reminder for your upcoming meeting:</p>
           <ul>
             <li><strong>Title:</strong> ${meeting.title}</li>
+            <li><strong>Student:</strong> ${student.firstName} ${student.lastName}</li>
+            <li><strong>Navigator:</strong> ${navigator.firstName} ${navigator.lastName}</li>
             <li><strong>Date:</strong> ${formatDate(meeting.startTime)}</li>
             <li><strong>Time:</strong> ${formatTime(meeting.startTime)} - ${formatTime(meeting.endTime)}</li>
             <li><strong>Location:</strong> ${meeting.location}</li>
+            ${meeting.location === 'phone' && meeting.phoneNumber ? `<li><strong>Phone Number:</strong> ${meeting.phoneNumber}</li>` : ''}
             ${meeting.meetingLink ? `<li><strong>Meeting Link:</strong> <a href="${meeting.meetingLink}">${meeting.meetingLink}</a></li>` : ''}
           </ul>
         `;
