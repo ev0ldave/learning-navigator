@@ -135,11 +135,8 @@ variable "allowed_domain" {
   default     = "students.highline.edu"
 }
 
-variable "zoom_link" {
-  description = "Default Zoom meeting link for virtual meetings"
-  type        = string
-  default     = ""
-}
+# Note: Zoom links are now configured per-navigator in their profile settings
+# The ZOOM_LINK environment variable is deprecated but kept as a fallback
 
 # =============================================================================
 # GitHub Repository (for Render and Vercel deployments)

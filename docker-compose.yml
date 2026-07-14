@@ -48,6 +48,8 @@ services:
       CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-trlandrew@students.highline.edu}
       ALLOWED_DOMAIN: ${ALLOWED_DOMAIN:-students.highline.edu}
+      # Note: Zoom links are now configured per-navigator in their profile settings
+      # ZOOM_LINK is kept as optional fallback for backwards compatibility
       ZOOM_LINK: ${ZOOM_LINK:-}
       TEST_STUDENT_EMAIL_1: ${TEST_STUDENT_EMAIL_1:-1411andrew@gmail.com}
       TEST_STUDENT_EMAIL_2: ${TEST_STUDENT_EMAIL_2:-ev0ldave@gmail.com}
