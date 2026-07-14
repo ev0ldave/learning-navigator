@@ -70,7 +70,7 @@ router.get('/navigators', isAuthenticated, async (req, res) => {
     const navigators = await User.find({ 
       role: { $in: ['learning_navigator', 'administrator'] },
       isActive: true
-    }).select('firstName lastName email profilePicture availability');
+    }).select('firstName lastName email profilePicture availability zoomLink');
     
     res.json({
       success: true,
