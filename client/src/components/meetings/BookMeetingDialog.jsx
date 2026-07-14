@@ -132,6 +132,20 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
     }
   }, [formData.navigatorId, formData.date]);
 
+  // Auto-switch to phone if selected navigator has no zoom link
+  useEffect(() => {
+    if (!formData.navigatorId) return;
+    
+    const selectedNavigator = isStudent() 
+      ? navigators.find(n => n._id === formData.navigatorId)
+      : (isNavigator() ? user : null);
+    
+    // If navigator has no zoom link and current location is virtual, switch to phone
+    if (selectedNavigator && !selectedNavigator.zoomLink && formData.location === 'virtual') {
+      setFormData(prev => ({ ...prev, location: 'phone' }));
+    }
+  }, [formData.navigatorId, navigators, user]);
+
   const fetchData = async () => {
     try {
       // Fetch active quarter to constrain date selection
@@ -548,9 +562,27 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
                 onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                 label="Location"
               >
-                <MenuItem value="virtual">Virtual</MenuItem>
+                {/* Only show Virtual if navigator has zoom link configured */}
+                {(() => {
+                  const selectedNavigator = isStudent() 
+                    ? navigators.find(n => n._id === formData.navigatorId)
+                    : (isNavigator() ? user : null);
+                  return selectedNavigator?.zoomLink ? (
+                    <MenuItem value="virtual">Virtual</MenuItem>
+                  ) : null;
+                })()}
                 <MenuItem value="phone">Phone</MenuItem>
               </Select>
+              {(() => {
+                const selectedNavigator = isStudent() 
+                  ? navigators.find(n => n._id === formData.navigatorId)
+                  : (isNavigator() ? user : null);
+                return !selectedNavigator?.zoomLink && formData.navigatorId ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
+                    Virtual meetings unavailable - navigator has not configured a Zoom link
+                  </Typography>
+                ) : null;
+              })()}
             </FormControl>
           </Grid>
 
