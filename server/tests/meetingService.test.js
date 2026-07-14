@@ -141,6 +141,40 @@ describe('MeetingService', () => {
         meetingService.validatePhoneMeeting('phone', '555-123-4567');
       }).not.toThrow();
     });
+
+    it('should require zoom link for virtual meetings', () => {
+      const navigatorWithoutZoom = { _id: 'nav1', firstName: 'Test', lastName: 'Nav', zoomLink: null };
+      const navigatorWithEmptyZoom = { _id: 'nav2', firstName: 'Test', lastName: 'Nav', zoomLink: '' };
+      const navigatorWithUndefinedZoom = { _id: 'nav3', firstName: 'Test', lastName: 'Nav' };
+
+      expect(() => {
+        meetingService.validateVirtualMeeting('virtual', navigatorWithoutZoom);
+      }).toThrow(MeetingValidationError);
+
+      expect(() => {
+        meetingService.validateVirtualMeeting('virtual', navigatorWithEmptyZoom);
+      }).toThrow(MeetingValidationError);
+
+      expect(() => {
+        meetingService.validateVirtualMeeting('virtual', navigatorWithUndefinedZoom);
+      }).toThrow(MeetingValidationError);
+    });
+
+    it('should not require zoom link for phone meetings', () => {
+      const navigatorWithoutZoom = { _id: 'nav1', firstName: 'Test', lastName: 'Nav', zoomLink: null };
+
+      expect(() => {
+        meetingService.validateVirtualMeeting('phone', navigatorWithoutZoom);
+      }).not.toThrow();
+    });
+
+    it('should accept virtual meeting when navigator has zoom link', () => {
+      const navigatorWithZoom = { _id: 'nav1', firstName: 'Test', lastName: 'Nav', zoomLink: 'https://zoom.us/j/123456' };
+
+      expect(() => {
+        meetingService.validateVirtualMeeting('virtual', navigatorWithZoom);
+      }).not.toThrow();
+    });
   });
 
   describe('Dependency Inversion Principle', () => {

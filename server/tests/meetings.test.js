@@ -50,6 +50,7 @@ beforeEach(async () => {
     lastName: 'Navigator',
     role: 'learning_navigator',
     isActive: true,
+    zoomLink: 'https://zoom.us/j/testmeeting123',
     availability: [
       { dayOfWeek: 1, startTime: '09:00', endTime: '17:00' },
       { dayOfWeek: 2, startTime: '09:00', endTime: '17:00' },
