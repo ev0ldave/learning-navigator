@@ -28,11 +28,6 @@ Terraform configuration to deploy Learning Navigator on free tiers:
    - Create OAuth 2.0 credentials
    - Add authorized redirect URI: `https://<project>-backend.onrender.com/api/auth/google/callback`
 
-6. **Google Voice (Optional - for SMS reminders)**
-   - Set up Google Voice at [voice.google.com](https://voice.google.com)
-   - Use your Google Voice credentials for SMS notifications
-   - Users must enable SMS reminders in their profile settings
-
 ## Setup
 
 1. **Install Terraform**

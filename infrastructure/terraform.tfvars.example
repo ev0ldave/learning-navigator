@@ -56,11 +56,6 @@ allowed_domain = "students.highline.edu"
 # Zoom Configuration
 zoom_link = "your-zoom-link"
 
-# SMS Configuration (Google Voice - optional)
-# Leave empty to disable SMS reminders
-google_voice_email    = ""  # Your Google Voice email
-google_voice_password = ""  # Your Google Voice password
-
 # MongoDB Configuration (optional overrides)
 mongodb_region        = "US_WEST_2"  # AWS region for free tier
 mongodb_database_name = "learning-navigator"

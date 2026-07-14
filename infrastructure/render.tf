@@ -78,12 +78,6 @@ resource "render_web_service" "backend" {
     ZOOM_LINK = {
       value = var.zoom_link
     }
-    GOOGLE_VOICE_EMAIL = {
-      value = var.google_voice_email
-    }
-    GOOGLE_VOICE_PASSWORD = {
-      value = var.google_voice_password
-    }
     # CLIENT_URL will be set after Vercel deployment
     CLIENT_URL = {
       value = "https://${var.project_name}.vercel.app"
