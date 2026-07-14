@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { body, validationResult, query } = require('express-validator');
 const Meeting = require('../models/Meeting');
-const User = require('../models/User');
-const WeeklyHours = require('../models/AvailableHours');
 const SchoolQuarter = require('../models/SchoolQuarter');
+const { meetingRepository } = require('../repositories');
+const meetingService = require('../services/meetingService');
+const { MeetingValidationError } = require('../services/meetingService');
 const { 
   isAuthenticated, 
   requireNavigator,
@@ -17,65 +18,38 @@ const {
   queueCalendarDelete, 
   queueMeetingNotification 
 } = require('../services/jobQueue');
-const { getPacificDayOfWeek, getPacificComponents, getPacificTimeString } = require('../utils/timezone');
-
-const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 // Validate ObjectId params
 router.param('id', validateObjectId('id'));
+
+/**
+ * Error handler helper for MeetingValidationError
+ */
+const handleServiceError = (error, res) => {
+  if (error instanceof MeetingValidationError) {
+    const response = { success: false, message: error.message };
+    if (error.details) {
+      Object.assign(response, error.details);
+    }
+    return res.status(error.statusCode).json(response);
+  }
+  console.error('Unexpected error:', error);
+  return res.status(500).json({ success: false, message: 'An error occurred' });
+};
 
 // @route   GET /api/meetings
 // @desc    Get meetings for current user
 // @access  Private
 router.get('/', isAuthenticated, async (req, res) => {
   try {
-    const { 
-      startDate, 
-      endDate, 
-      status, 
-      page = 1, 
-      limit = 50 
-    } = req.query;
+    const { startDate, endDate, status, page = 1, limit = 50 } = req.query;
     
-    const query = {};
-    
-    // Filter by user role
-    if (req.user.role === 'student') {
-      query.student = req.user._id;
-    } else if (req.user.role === 'learning_navigator') {
-      query.navigator = req.user._id;
-    }
-    // Admin sees all meetings
-    
-    // Date filters
-    if (startDate || endDate) {
-      query.startTime = {};
-      if (startDate) query.startTime.$gte = new Date(startDate);
-      if (endDate) query.startTime.$lte = new Date(endDate);
-    }
-    
-    // Status filter (handles comma-separated values)
-    if (status) {
-      const statuses = status.split(',').map(s => s.trim());
-      if (statuses.length > 1) {
-        query.status = { $in: statuses };
-      } else {
-        query.status = status;
-      }
-    }
-    
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    const [meetings, total] = await Promise.all([
-      Meeting.find(query)
-        .sort({ startTime: 1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .populate('student', 'firstName lastName email profilePicture')
-        .populate('navigator', 'firstName lastName email profilePicture')
-        .populate('notes'),
-      Meeting.countDocuments(query)
-    ]);
+    const { meetings, total } = await meetingRepository.findForUser(
+      req.user._id,
+      req.user.role,
+      { startDate, endDate, status },
+      { page: parseInt(page), limit: parseInt(limit) }
+    );
     
     res.json({
       success: true,
@@ -101,22 +75,7 @@ router.get('/', isAuthenticated, async (req, res) => {
 // @access  Private
 router.get('/upcoming', isAuthenticated, async (req, res) => {
   try {
-    const query = {
-      startTime: { $gte: new Date() },
-      status: { $in: ['scheduled', 'confirmed'] }
-    };
-    
-    if (req.user.role === 'student') {
-      query.student = req.user._id;
-    } else if (req.user.role === 'learning_navigator') {
-      query.navigator = req.user._id;
-    }
-    
-    const meetings = await Meeting.find(query)
-      .sort({ startTime: 1 })
-      .limit(10)
-      .populate('student', 'firstName lastName email profilePicture')
-      .populate('navigator', 'firstName lastName email profilePicture');
+    const meetings = await meetingRepository.findUpcoming(req.user._id, req.user.role, 10);
     
     res.json({
       success: true,
@@ -136,12 +95,7 @@ router.get('/upcoming', isAuthenticated, async (req, res) => {
 // @access  Private
 router.get('/:id', isAuthenticated, async (req, res) => {
   try {
-    const meeting = await Meeting.findById(req.params.id)
-      .populate('student', 'firstName lastName email profilePicture phone')
-      .populate('navigator', 'firstName lastName email profilePicture phone')
-      .populate('notes')
-      .populate('cancelledBy', 'firstName lastName')
-      .populate('rescheduledBy', 'firstName lastName');
+    const meeting = await meetingRepository.findByIdWithDetails(req.params.id);
     
     if (!meeting) {
       return res.status(404).json({
@@ -150,13 +104,8 @@ router.get('/:id', isAuthenticated, async (req, res) => {
       });
     }
     
-    // Check access
-    const hasAccess = 
-      req.user.role === 'administrator' ||
-      meeting.student._id.toString() === req.user._id.toString() ||
-      meeting.navigator._id.toString() === req.user._id.toString();
-    
-    if (!hasAccess) {
+    // Check access using service
+    if (!meetingService.hasAccess(meeting, req.user)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -190,7 +139,13 @@ router.post('/',
     body('isRecurring').optional().isBoolean(),
     body('recurrence.frequency').optional().isIn(['weekly', 'biweekly', 'triweekly', 'monthly']),
     body('location').optional().isIn(['in_person', 'virtual', 'phone']),
-    body('phoneNumber').optional().trim()
+    body('phoneNumber').optional().trim(),
+    body('phoneNumber').custom((value, { req }) => {
+      if (req.body.location === 'phone' && !value) {
+        throw new Error('Phone number is required for phone meetings');
+      }
+      return true;
+    })
   ],
   async (req, res) => {
     try {
@@ -202,200 +157,8 @@ router.post('/',
         });
       }
       
-      const { 
-        navigatorId, 
-        startTime, 
-        endTime, 
-        title, 
-        description, 
-        isRecurring,
-        recurrence,
-        location,
-        meetingLink,
-        phoneNumber
-      } = req.body;
-      
-      // For students, they can only book for themselves
-      let studentId = req.user._id;
-      
-      // Navigators and admins can book for any student
-      if (req.user.role !== 'student' && req.body.studentId) {
-        studentId = req.body.studentId;
-      }
-      
-      // Verify navigator exists
-      const navigator = await User.findOne({
-        _id: navigatorId,
-        role: { $in: ['learning_navigator', 'administrator'] },
-        isActive: true
-      });
-      
-      if (!navigator) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid navigator'
-        });
-      }
-      
-      const meetingStart = new Date(startTime);
-      const meetingEnd = new Date(endTime);
-      
-      // Students cannot schedule meetings within 24 hours
-      if (req.user.role === 'student') {
-        const now = new Date();
-        const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-        
-        if (meetingStart < twentyFourHoursFromNow) {
-          return res.status(400).json({
-            success: false,
-            message: 'Students cannot schedule meetings less than 24 hours in advance. Please select a later time or contact your learning navigator directly.'
-          });
-        }
-      }
-      
-      // Validate meeting date is within active school quarter
-      const quarterCheck = await SchoolQuarter.isDateInActiveQuarter(meetingStart);
-      if (!quarterCheck.valid && !quarterCheck.noQuarterSet) {
-        return res.status(400).json({
-          success: false,
-          message: quarterCheck.message,
-          quarterInfo: {
-            name: quarterCheck.quarterName,
-            startDate: quarterCheck.startDate,
-            endDate: quarterCheck.endDate
-          }
-        });
-      }
-      
-      // Check that the meeting falls within the navigator's weekly available hours
-      const weeklyHours = await WeeklyHours.findOne({ user: navigatorId });
-      const dayOfWeek = getPacificDayOfWeek(meetingStart); // Use Pacific day
-      const dayName = DAYS[dayOfWeek];
-      
-      // Get navigator's availability for this day
-      const dayAvailability = weeklyHours ? weeklyHours[dayName] : null;
-      
-      console.log('Booking validation:', {
-        navigatorId,
-        dayName,
-        dayOfWeek,
-        dayAvailability: dayAvailability ? { enabled: dayAvailability.enabled, slots: dayAvailability.slots } : null,
-        meetingStartPacific: getPacificTimeString(meetingStart),
-        meetingEndPacific: getPacificTimeString(meetingEnd)
-      });
-      
-      // Check if the day is available
-      if (!dayAvailability || !dayAvailability.enabled || !dayAvailability.slots || dayAvailability.slots.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: `The navigator is not available on ${dayName}. Please select a different date.`
-        });
-      }
-      
-      // Check if the meeting time falls within any of the day's available slots
-      // Use Pacific time to match how slots are generated
-      const meetingStartPacific = getPacificComponents(meetingStart);
-      const meetingEndPacific = getPacificComponents(meetingEnd);
-      const meetingStartHour = meetingStartPacific.hours;
-      const meetingStartMin = meetingStartPacific.minutes;
-      const meetingEndHour = meetingEndPacific.hours;
-      const meetingEndMin = meetingEndPacific.minutes;
-      
-      // Convert to minutes since midnight for easier comparison
-      const meetingStartMinutes = meetingStartHour * 60 + meetingStartMin;
-      const meetingEndMinutes = meetingEndHour * 60 + meetingEndMin;
-      
-      const isWithinAvailableSlot = dayAvailability.slots.some(slot => {
-        const [slotStartHour, slotStartMin] = slot.startTime.split(':').map(Number);
-        const [slotEndHour, slotEndMin] = slot.endTime.split(':').map(Number);
-        const slotStartMinutes = slotStartHour * 60 + slotStartMin;
-        const slotEndMinutes = slotEndHour * 60 + slotEndMin;
-        
-        const isWithin = meetingStartMinutes >= slotStartMinutes && meetingEndMinutes <= slotEndMinutes;
-        
-        console.log('Slot check:', {
-          slot: `${slot.startTime}-${slot.endTime}`,
-          meetingTimePacific: `${meetingStartHour}:${String(meetingStartMin).padStart(2,'0')}-${meetingEndHour}:${String(meetingEndMin).padStart(2,'0')}`,
-          slotMinutes: `${slotStartMinutes}-${slotEndMinutes}`,
-          meetingMinutes: `${meetingStartMinutes}-${meetingEndMinutes}`,
-          isWithin
-        });
-        
-        return isWithin;
-      });
-      
-      if (!isWithinAvailableSlot) {
-        const meetingTimeStr = `${String(meetingStartHour).padStart(2, '0')}:${String(meetingStartMin).padStart(2, '0')}`;
-        const availableTimesStr = dayAvailability.slots.map(s => `${s.startTime}-${s.endTime}`).join(', ');
-        return res.status(400).json({
-          success: false,
-          message: `The selected time (${meetingTimeStr} Pacific) is outside the navigator's available hours (${availableTimesStr}). Please select from the available time slots.`
-        });
-      }
-      
-      // Check for scheduling conflicts with the navigator
-      const conflictingMeeting = await Meeting.findOne({
-        navigator: navigatorId,
-        status: { $in: ['scheduled', 'confirmed'] },
-        $or: [
-          {
-            startTime: { $lt: meetingEnd },
-            endTime: { $gt: meetingStart }
-          }
-        ]
-      });
-      
-      if (conflictingMeeting) {
-        return res.status(400).json({
-          success: false,
-          message: 'The navigator already has a meeting scheduled during this time'
-        });
-      }
-      
-      // Determine recurrence settings based on user role
-      // Students: always weekly until quarter end
-      // Navigators/Admins: can choose frequency and end date (capped by quarter)
-      let recurrenceFrequency = 'weekly';
-      let recurrenceEndDate = null;
-      
-      if (isRecurring) {
-        if (req.user.role === 'student') {
-          // Students: force weekly until quarter end
-          recurrenceFrequency = 'weekly';
-          recurrenceEndDate = await SchoolQuarter.getRecurrenceEndDate(null);
-        } else {
-          // Navigators/Admins: use provided values, capped by quarter
-          recurrenceFrequency = recurrence?.frequency || 'weekly';
-          if (recurrence?.endDate) {
-            recurrenceEndDate = await SchoolQuarter.getRecurrenceEndDate(new Date(recurrence.endDate));
-          } else {
-            recurrenceEndDate = await SchoolQuarter.getRecurrenceEndDate(null);
-          }
-        }
-      }
-      
-      // Create meeting
-      const meeting = new Meeting({
-        student: studentId,
-        navigator: navigatorId,
-        title: title || 'Learning Navigator Session',
-        description,
-        startTime: new Date(startTime),
-        endTime: new Date(endTime),
-        type: isRecurring ? 'recurring' : 'initial',
-        isRecurring: isRecurring || false,
-        recurrence: isRecurring ? {
-          frequency: recurrenceFrequency,
-          dayOfWeek: new Date(startTime).getDay(),
-          endDate: recurrenceEndDate
-        } : undefined,
-        location: location || 'virtual',
-        meetingLink,
-        phoneNumber: location === 'phone' ? phoneNumber : undefined,
-        createdBy: req.user._id
-      });
-      
-      await meeting.save();
+      // Use MeetingService for business logic
+      const { meeting, recurrenceEndDate } = await meetingService.createMeeting(req.body, req.user);
       
       // Populate for response
       await meeting.populate([
@@ -410,7 +173,7 @@ router.post('/',
       await queueMeetingNotification(meeting._id.toString(), 'scheduled');
       
       // If recurring, create future meetings
-      if (isRecurring && recurrenceEndDate) {
+      if (req.body.isRecurring && recurrenceEndDate) {
         await createRecurringMeetings(meeting, recurrenceEndDate);
       }
       
@@ -420,6 +183,9 @@ router.post('/',
         meeting
       });
     } catch (error) {
+      if (error instanceof MeetingValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Create meeting error:', error);
       res.status(500).json({
         success: false,
@@ -428,7 +194,6 @@ router.post('/',
     }
   }
 );
-
 // @route   PUT /api/meetings/:id
 // @desc    Update a meeting (reschedule)
 // @access  Private
@@ -440,7 +205,14 @@ router.put('/:id',
     body('title').optional().trim(),
     body('description').optional().trim(),
     body('location').optional().isIn(['in_person', 'virtual', 'phone']),
-    body('phoneNumber').optional().trim()
+    body('phoneNumber').optional().trim(),
+    body('phoneNumber').custom((value, { req }) => {
+      // If changing to phone location, require phone number
+      if (req.body.location === 'phone' && !value) {
+        throw new Error('Phone number is required for phone meetings');
+      }
+      return true;
+    })
   ],
   async (req, res) => {
     try {
@@ -452,70 +224,12 @@ router.put('/:id',
         });
       }
       
-      const meeting = await Meeting.findById(req.params.id);
-      
-      if (!meeting) {
-        return res.status(404).json({
-          success: false,
-          message: 'Meeting not found'
-        });
-      }
-      
-      // Check permissions
-      const canUpdate = 
-        req.user.role === 'administrator' ||
-        meeting.student.toString() === req.user._id.toString() ||
-        meeting.navigator.toString() === req.user._id.toString();
-      
-      if (!canUpdate) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have permission to update this meeting'
-        });
-      }
-      
-      const { startTime, endTime, title, description, location, meetingLink, phoneNumber } = req.body;
-      const isRescheduling = startTime || endTime;
-      
-      // Check for conflicts if rescheduling
-      if (isRescheduling) {
-        const newStart = startTime ? new Date(startTime) : meeting.startTime;
-        const newEnd = endTime ? new Date(endTime) : meeting.endTime;
-        
-        const conflictingMeeting = await Meeting.findOne({
-          _id: { $ne: meeting._id },
-          navigator: meeting.navigator,
-          status: { $in: ['scheduled', 'confirmed'] },
-          $or: [
-            {
-              startTime: { $lt: newEnd },
-              endTime: { $gt: newStart }
-            }
-          ]
-        });
-        
-        if (conflictingMeeting) {
-          return res.status(400).json({
-            success: false,
-            message: 'This time slot is not available'
-          });
-        }
-        
-        meeting.rescheduledFrom = meeting.startTime;
-        meeting.rescheduledBy = req.user._id;
-        if (startTime) meeting.startTime = newStart;
-        if (endTime) meeting.endTime = newEnd;
-      }
-      
-      if (title) meeting.title = title;
-      if (description !== undefined) meeting.description = description;
-      if (location) meeting.location = location;
-      if (meetingLink !== undefined) meeting.meetingLink = meetingLink;
-      if (phoneNumber !== undefined) {
-        meeting.phoneNumber = location === 'phone' || meeting.location === 'phone' ? phoneNumber : undefined;
-      }
-      
-      await meeting.save();
+      // Use MeetingService for business logic
+      const { meeting, isRescheduling } = await meetingService.updateMeeting(
+        req.params.id,
+        req.body,
+        req.user
+      );
       
       await meeting.populate([
         { path: 'student', select: 'firstName lastName email profilePicture' },
@@ -534,6 +248,9 @@ router.put('/:id',
         meeting
       });
     } catch (error) {
+      if (error instanceof MeetingValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Update meeting error:', error);
       res.status(500).json({
         success: false,
@@ -553,34 +270,12 @@ router.put('/:id/cancel',
   ],
   async (req, res) => {
     try {
-      const meeting = await Meeting.findById(req.params.id);
-      
-      if (!meeting) {
-        return res.status(404).json({
-          success: false,
-          message: 'Meeting not found'
-        });
-      }
-      
-      // Check permissions
-      const canCancel = 
-        req.user.role === 'administrator' ||
-        meeting.student.toString() === req.user._id.toString() ||
-        meeting.navigator.toString() === req.user._id.toString();
-      
-      if (!canCancel) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have permission to cancel this meeting'
-        });
-      }
-      
-      meeting.status = 'cancelled';
-      meeting.cancelledBy = req.user._id;
-      meeting.cancellationReason = req.body.reason;
-      meeting.cancelledAt = new Date();
-      
-      await meeting.save();
+      // Use MeetingService for business logic
+      const meeting = await meetingService.cancelMeeting(
+        req.params.id,
+        req.user,
+        req.body.reason
+      );
       
       await meeting.populate([
         { path: 'student', select: 'firstName lastName email profilePicture' },
@@ -597,6 +292,9 @@ router.put('/:id/cancel',
         meeting
       });
     } catch (error) {
+      if (error instanceof MeetingValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Cancel meeting error:', error);
       res.status(500).json({
         success: false,
@@ -611,26 +309,8 @@ router.put('/:id/cancel',
 // @access  Private/Navigator
 router.put('/:id/complete', isAuthenticated, requireNavigator, async (req, res) => {
   try {
-    const meeting = await Meeting.findById(req.params.id);
-    
-    if (!meeting) {
-      return res.status(404).json({
-        success: false,
-        message: 'Meeting not found'
-      });
-    }
-    
-    // Only navigator of the meeting or admin can mark as complete
-    if (req.user.role !== 'administrator' && 
-        meeting.navigator.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the assigned navigator can complete this meeting'
-      });
-    }
-    
-    meeting.status = 'completed';
-    await meeting.save();
+    // Use MeetingService for business logic
+    const meeting = await meetingService.completeMeeting(req.params.id, req.user);
     
     res.json({
       success: true,
@@ -638,6 +318,9 @@ router.put('/:id/complete', isAuthenticated, requireNavigator, async (req, res) 
       meeting
     });
   } catch (error) {
+    if (error instanceof MeetingValidationError) {
+      return handleServiceError(error, res);
+    }
     console.error('Complete meeting error:', error);
     res.status(500).json({
       success: false,
@@ -651,25 +334,8 @@ router.put('/:id/complete', isAuthenticated, requireNavigator, async (req, res) 
 // @access  Private/Navigator
 router.put('/:id/no-show', isAuthenticated, requireNavigator, async (req, res) => {
   try {
-    const meeting = await Meeting.findById(req.params.id);
-    
-    if (!meeting) {
-      return res.status(404).json({
-        success: false,
-        message: 'Meeting not found'
-      });
-    }
-    
-    if (req.user.role !== 'administrator' && 
-        meeting.navigator.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the assigned navigator can mark this meeting'
-      });
-    }
-    
-    meeting.status = 'no_show';
-    await meeting.save();
+    // Use MeetingService for business logic
+    const meeting = await meetingService.markNoShow(req.params.id, req.user);
     
     res.json({
       success: true,
@@ -677,6 +343,9 @@ router.put('/:id/no-show', isAuthenticated, requireNavigator, async (req, res) =
       meeting
     });
   } catch (error) {
+    if (error instanceof MeetingValidationError) {
+      return handleServiceError(error, res);
+    }
     console.error('No-show meeting error:', error);
     res.status(500).json({
       success: false,
@@ -706,78 +375,12 @@ router.delete('/series/:id',
       const { scope = 'all' } = req.query;
       const reason = req.body?.reason;
 
-      // Find the meeting
-      const meeting = await Meeting.findById(req.params.id);
-
-      if (!meeting) {
-        return res.status(404).json({
-          success: false,
-          message: 'Meeting not found'
-        });
-      }
-
-      if (!meeting.isRecurring) {
-        return res.status(400).json({
-          success: false,
-          message: 'This meeting is not part of a recurring series'
-        });
-      }
-
-      // Check permissions - student, navigator, or admin can delete
-      const canDelete = 
-        req.user.role === 'administrator' ||
-        meeting.student.toString() === req.user._id.toString() ||
-        meeting.navigator.toString() === req.user._id.toString();
-
-      if (!canDelete) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have permission to delete this meeting series'
-        });
-      }
-
-      // Determine the parent meeting ID
-      const parentId = meeting.recurrence?.parentMeetingId || meeting._id;
-
-      // Build query to find all meetings in the series
-      const seriesQuery = {
-        $or: [
-          { _id: parentId },
-          { 'recurrence.parentMeetingId': parentId }
-        ],
-        status: { $in: ['scheduled', 'confirmed'] } // Only delete active meetings
-      };
-
-      // If scope is 'future', only delete meetings from today onwards
-      if (scope === 'future') {
-        seriesQuery.startTime = { $gte: new Date() };
-      }
-
-      // Find all meetings to delete
-      const meetingsToDelete = await Meeting.find(seriesQuery)
-        .populate('student', 'firstName lastName email')
-        .populate('navigator', 'firstName lastName email');
-
-      if (meetingsToDelete.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'No active meetings found in this series'
-        });
-      }
-
-      // Cancel all meetings in the series (soft delete by setting status to cancelled)
-      const meetingIds = meetingsToDelete.map(m => m._id);
-      
-      await Meeting.updateMany(
-        { _id: { $in: meetingIds } },
-        {
-          $set: {
-            status: 'cancelled',
-            cancelledBy: req.user._id,
-            cancellationReason: reason || 'Recurring series deleted',
-            cancelledAt: new Date()
-          }
-        }
+      // Use MeetingService for business logic
+      const meetingsToDelete = await meetingService.deleteRecurringSeries(
+        req.params.id,
+        req.user,
+        scope,
+        reason
       );
 
       // Delete calendar events and send notifications for each meeting
@@ -806,6 +409,9 @@ router.delete('/series/:id',
         }
       });
     } catch (error) {
+      if (error instanceof MeetingValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Delete meeting series error:', error);
       res.status(500).json({
         success: false,
