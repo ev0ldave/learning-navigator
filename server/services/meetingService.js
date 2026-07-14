@@ -230,10 +230,10 @@ class MeetingService {
       );
 
     // Determine meeting link for virtual meetings
-    // Priority: explicit meetingLink > navigator's zoomLink > env fallback
+    // Uses navigator's zoomLink (validation ensures it exists for virtual meetings)
     let meetingLink = meetingData.meetingLink;
     if (!meetingLink && meetingData.location !== 'phone') {
-      meetingLink = navigator.zoomLink || process.env.ZOOM_LINK;
+      meetingLink = navigator.zoomLink;
     }
 
     // Create the meeting

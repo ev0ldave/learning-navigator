@@ -4,7 +4,6 @@
  * On startup, updates all scheduled/confirmed future meetings with each navigator's
  * configured zoom link, and syncs changes to Google Calendar.
  * If calendar update fails, sends email notification with the new link.
- * Falls back to ZOOM_LINK env variable for navigators without a configured link.
  */
 
 const Meeting = require('../models/Meeting');
@@ -64,7 +63,6 @@ const sendZoomLinkUpdateEmail = async (user, meeting, zoomLink) => {
 const syncZoomLinks = async () => {
   try {
     const now = new Date();
-    const fallbackZoomLink = process.env.ZOOM_LINK;
     
     // Find all navigators who have a zoom link configured
     const navigatorsWithLinks = await User.find({
@@ -72,8 +70,8 @@ const syncZoomLinks = async () => {
       zoomLink: { $exists: true, $ne: null, $ne: '' }
     }).select('_id zoomLink firstName lastName');
     
-    if (navigatorsWithLinks.length === 0 && !fallbackZoomLink) {
-      console.log('No navigator zoom links or fallback ZOOM_LINK configured, skipping zoom link sync');
+    if (navigatorsWithLinks.length === 0) {
+      console.log('No navigators with zoom links configured, skipping zoom link sync');
       return { skipped: true };
     }
     
@@ -120,58 +118,6 @@ const syncZoomLinks = async () => {
                   usersToNotify.set(nav.email, { user: nav, meetings: [] });
                 }
                 usersToNotify.get(nav.email).meetings.push({ meeting, zoomLink: navigator.zoomLink });
-              }
-            }
-            
-            totalUpdated++;
-          } catch (err) {
-            console.error(`Failed to update meeting ${meeting._id}:`, err.message);
-            totalErrors++;
-          }
-        }
-      }
-    }
-    
-    // Handle meetings for navigators without configured links (use fallback)
-    if (fallbackZoomLink) {
-      const navigatorIds = navigatorsWithLinks.map(n => n._id);
-      const meetingsWithoutLink = await Meeting.find({
-        navigator: { $nin: navigatorIds },
-        startTime: { $gt: now },
-        status: { $in: ['scheduled', 'confirmed'] },
-        location: 'virtual',
-        $or: [
-          { meetingLink: { $exists: false } },
-          { meetingLink: null },
-          { meetingLink: '' }
-        ]
-      }).populate('student navigator');
-      
-      if (meetingsWithoutLink.length > 0) {
-        console.log(`📅 Updating ${meetingsWithoutLink.length} meetings with fallback zoom link`);
-        
-        for (const meeting of meetingsWithoutLink) {
-          try {
-            meeting.meetingLink = fallbackZoomLink;
-            await meeting.save();
-            
-            const calResult = await updateCalendarEvent(meeting);
-            
-            if (calResult.error || calResult.skipped) {
-              const student = meeting.student;
-              if (student) {
-                if (!usersToNotify.has(student.email)) {
-                  usersToNotify.set(student.email, { user: student, meetings: [] });
-                }
-                usersToNotify.get(student.email).meetings.push({ meeting, zoomLink: fallbackZoomLink });
-              }
-              
-              const nav = meeting.navigator;
-              if (nav) {
-                if (!usersToNotify.has(nav.email)) {
-                  usersToNotify.set(nav.email, { user: nav, meetings: [] });
-                }
-                usersToNotify.get(nav.email).meetings.push({ meeting, zoomLink: fallbackZoomLink });
               }
             }
             
