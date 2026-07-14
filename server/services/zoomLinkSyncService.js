@@ -1,9 +1,10 @@
 /**
  * Zoom Link Sync Service
  * 
- * On startup, updates all scheduled/confirmed future meetings with the current
- * ZOOM_LINK from environment, and syncs changes to Google Calendar.
+ * On startup, updates all scheduled/confirmed future meetings with each navigator's
+ * configured zoom link, and syncs changes to Google Calendar.
  * If calendar update fails, sends email notification with the new link.
+ * Falls back to ZOOM_LINK env variable for navigators without a configured link.
  */
 
 const Meeting = require('../models/Meeting');
@@ -57,98 +58,148 @@ const sendZoomLinkUpdateEmail = async (user, meeting, zoomLink) => {
 
 /**
  * Sync zoom links for all future meetings
+ * Updates meetings to use each navigator's configured zoom link
  * @returns {Promise<{updated: number, errors: number, emailsSent: number}>}
  */
 const syncZoomLinks = async () => {
-  const zoomLink = process.env.ZOOM_LINK;
-  
-  if (!zoomLink) {
-    console.log('No ZOOM_LINK configured, skipping zoom link sync');
-    return { skipped: true };
-  }
-  
   try {
     const now = new Date();
+    const fallbackZoomLink = process.env.ZOOM_LINK;
     
-    // Find all future virtual meetings that don't have the current zoom link
-    const meetingsToUpdate = await Meeting.find({
-      startTime: { $gt: now },
-      status: { $in: ['scheduled', 'confirmed'] },
-      location: 'virtual',
-      meetingLink: { $ne: zoomLink }
-    }).populate('student navigator');
+    // Find all navigators who have a zoom link configured
+    const navigatorsWithLinks = await User.find({
+      role: { $in: ['learning_navigator', 'administrator'] },
+      zoomLink: { $exists: true, $ne: null, $ne: '' }
+    }).select('_id zoomLink firstName lastName');
     
-    if (meetingsToUpdate.length === 0) {
-      console.log('✅ All virtual meetings already have current Zoom link');
-      return { updated: 0, errors: 0, emailsSent: 0 };
+    if (navigatorsWithLinks.length === 0 && !fallbackZoomLink) {
+      console.log('No navigator zoom links or fallback ZOOM_LINK configured, skipping zoom link sync');
+      return { skipped: true };
     }
     
-    console.log(`📅 Found ${meetingsToUpdate.length} meetings to update with new Zoom link`);
+    console.log(`🔗 Found ${navigatorsWithLinks.length} navigators with configured zoom links`);
     
-    let updated = 0;
-    let errors = 0;
-    let emailsSent = 0;
-    
-    // Track users who need email notification (calendar update failed)
+    let totalUpdated = 0;
+    let totalErrors = 0;
+    let totalEmailsSent = 0;
     const usersToNotify = new Map(); // email -> { user, meetings: [] }
     
-    for (const meeting of meetingsToUpdate) {
-      try {
-        // Update the meeting link
-        meeting.meetingLink = zoomLink;
-        await meeting.save();
+    // Process each navigator's meetings
+    for (const navigator of navigatorsWithLinks) {
+      const meetingsToUpdate = await Meeting.find({
+        navigator: navigator._id,
+        startTime: { $gt: now },
+        status: { $in: ['scheduled', 'confirmed'] },
+        location: 'virtual',
+        meetingLink: { $ne: navigator.zoomLink }
+      }).populate('student navigator');
+      
+      if (meetingsToUpdate.length > 0) {
+        console.log(`📅 Updating ${meetingsToUpdate.length} meetings for ${navigator.firstName} ${navigator.lastName}`);
         
-        // Update Google Calendar events (if configured)
-        const calResult = await updateCalendarEvent(meeting);
-        
-        if (calResult.error || calResult.skipped) {
-          // Calendar update failed - queue email notifications
-          const student = meeting.student;
-          const navigator = meeting.navigator;
-          
-          if (student) {
-            if (!usersToNotify.has(student.email)) {
-              usersToNotify.set(student.email, { user: student, meetings: [] });
+        for (const meeting of meetingsToUpdate) {
+          try {
+            meeting.meetingLink = navigator.zoomLink;
+            await meeting.save();
+            
+            const calResult = await updateCalendarEvent(meeting);
+            
+            if (calResult.error || calResult.skipped) {
+              // Queue email notifications for failed calendar updates
+              const student = meeting.student;
+              if (student) {
+                if (!usersToNotify.has(student.email)) {
+                  usersToNotify.set(student.email, { user: student, meetings: [] });
+                }
+                usersToNotify.get(student.email).meetings.push({ meeting, zoomLink: navigator.zoomLink });
+              }
+              
+              const nav = meeting.navigator;
+              if (nav) {
+                if (!usersToNotify.has(nav.email)) {
+                  usersToNotify.set(nav.email, { user: nav, meetings: [] });
+                }
+                usersToNotify.get(nav.email).meetings.push({ meeting, zoomLink: navigator.zoomLink });
+              }
             }
-            usersToNotify.get(student.email).meetings.push(meeting);
-          }
-          
-          if (navigator) {
-            if (!usersToNotify.has(navigator.email)) {
-              usersToNotify.set(navigator.email, { user: navigator, meetings: [] });
-            }
-            usersToNotify.get(navigator.email).meetings.push(meeting);
-          }
-          
-          if (calResult.error) {
-            console.warn(`Calendar update failed for meeting ${meeting._id}: ${calResult.error}`);
+            
+            totalUpdated++;
+          } catch (err) {
+            console.error(`Failed to update meeting ${meeting._id}:`, err.message);
+            totalErrors++;
           }
         }
-        
-        updated++;
-      } catch (err) {
-        console.error(`Failed to update meeting ${meeting._id}:`, err.message);
-        errors++;
       }
     }
     
-    // Send email notifications to users whose calendars couldn't be updated
+    // Handle meetings for navigators without configured links (use fallback)
+    if (fallbackZoomLink) {
+      const navigatorIds = navigatorsWithLinks.map(n => n._id);
+      const meetingsWithoutLink = await Meeting.find({
+        navigator: { $nin: navigatorIds },
+        startTime: { $gt: now },
+        status: { $in: ['scheduled', 'confirmed'] },
+        location: 'virtual',
+        $or: [
+          { meetingLink: { $exists: false } },
+          { meetingLink: null },
+          { meetingLink: '' }
+        ]
+      }).populate('student navigator');
+      
+      if (meetingsWithoutLink.length > 0) {
+        console.log(`📅 Updating ${meetingsWithoutLink.length} meetings with fallback zoom link`);
+        
+        for (const meeting of meetingsWithoutLink) {
+          try {
+            meeting.meetingLink = fallbackZoomLink;
+            await meeting.save();
+            
+            const calResult = await updateCalendarEvent(meeting);
+            
+            if (calResult.error || calResult.skipped) {
+              const student = meeting.student;
+              if (student) {
+                if (!usersToNotify.has(student.email)) {
+                  usersToNotify.set(student.email, { user: student, meetings: [] });
+                }
+                usersToNotify.get(student.email).meetings.push({ meeting, zoomLink: fallbackZoomLink });
+              }
+              
+              const nav = meeting.navigator;
+              if (nav) {
+                if (!usersToNotify.has(nav.email)) {
+                  usersToNotify.set(nav.email, { user: nav, meetings: [] });
+                }
+                usersToNotify.get(nav.email).meetings.push({ meeting, zoomLink: fallbackZoomLink });
+              }
+            }
+            
+            totalUpdated++;
+          } catch (err) {
+            console.error(`Failed to update meeting ${meeting._id}:`, err.message);
+            totalErrors++;
+          }
+        }
+      }
+    }
+    
+    // Send email notifications
     if (usersToNotify.size > 0) {
       console.log(`📧 Sending zoom link update emails to ${usersToNotify.size} users...`);
       
       for (const [email, data] of usersToNotify) {
-        // Send one email per meeting (or could consolidate - keeping simple for now)
-        for (const meeting of data.meetings) {
+        for (const { meeting, zoomLink } of data.meetings) {
           const result = await sendZoomLinkUpdateEmail(data.user, meeting, zoomLink);
           if (result.success) {
-            emailsSent++;
+            totalEmailsSent++;
           }
         }
       }
     }
     
-    console.log(`✅ Zoom link sync complete: ${updated} updated, ${errors} errors, ${emailsSent} emails sent`);
-    return { updated, errors, emailsSent };
+    console.log(`✅ Zoom link sync complete: ${totalUpdated} updated, ${totalErrors} errors, ${totalEmailsSent} emails sent`);
+    return { updated: totalUpdated, errors: totalErrors, emailsSent: totalEmailsSent };
   } catch (error) {
     console.error('Zoom link sync failed:', error);
     return { error: error.message };

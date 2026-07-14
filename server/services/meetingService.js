@@ -217,6 +217,13 @@ class MeetingService {
         meetingData.recurrence
       );
 
+    // Determine meeting link for virtual meetings
+    // Priority: explicit meetingLink > navigator's zoomLink > env fallback
+    let meetingLink = meetingData.meetingLink;
+    if (!meetingLink && meetingData.location !== 'phone') {
+      meetingLink = navigator.zoomLink || process.env.ZOOM_LINK;
+    }
+
     // Create the meeting
     const meeting = await this.meetingRepo.create({
       student: studentId,
@@ -233,7 +240,7 @@ class MeetingService {
         endDate: recurrenceEndDate
       } : undefined,
       location: meetingData.location || 'virtual',
-      meetingLink: meetingData.meetingLink,
+      meetingLink: meetingLink,
       phoneNumber: meetingData.location === 'phone' ? meetingData.phoneNumber : undefined,
       createdBy: user._id
     });
