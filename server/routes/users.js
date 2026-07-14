@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { body, validationResult, param } = require('express-validator');
 const User = require('../models/User');
+const Meeting = require('../models/Meeting');
+const { updateCalendarEvent } = require('../services/calendarService');
 const { 
   isAuthenticated, 
   requireAdmin, 
@@ -265,10 +267,17 @@ router.put('/:id',
       if (profilePicture !== undefined) updateData.profilePicture = profilePicture;
       
       // Only allow navigators/admins to set zoom link
+      let zoomLinkChanged = false;
+      let oldZoomLink = null;
       if (zoomLink !== undefined) {
         const targetUser = await User.findById(req.params.id);
         if (targetUser && (targetUser.role === 'learning_navigator' || targetUser.role === 'administrator')) {
-          updateData.zoomLink = zoomLink || null;
+          const newZoomLink = zoomLink || null;
+          if (targetUser.zoomLink !== newZoomLink) {
+            zoomLinkChanged = true;
+            oldZoomLink = targetUser.zoomLink;
+          }
+          updateData.zoomLink = newZoomLink;
         }
       }
       
@@ -303,10 +312,48 @@ router.put('/:id',
         });
       }
       
+      // If zoom link changed, update all future virtual meetings for this navigator
+      let meetingsUpdated = 0;
+      if (zoomLinkChanged && user.zoomLink) {
+        try {
+          const now = new Date();
+          const futureMeetings = await Meeting.find({
+            navigator: user._id,
+            startTime: { $gt: now },
+            status: { $in: ['scheduled', 'confirmed'] },
+            location: 'virtual'
+          }).populate('student navigator');
+          
+          for (const meeting of futureMeetings) {
+            meeting.meetingLink = user.zoomLink;
+            await meeting.save();
+            
+            // Update Google Calendar event
+            try {
+              await updateCalendarEvent(meeting);
+            } catch (calError) {
+              console.warn(`Failed to update calendar for meeting ${meeting._id}:`, calError.message);
+            }
+            
+            meetingsUpdated++;
+          }
+          
+          if (meetingsUpdated > 0) {
+            console.log(`Updated ${meetingsUpdated} meetings with new zoom link for ${user.email}`);
+          }
+        } catch (meetingError) {
+          console.error('Error updating meetings with new zoom link:', meetingError);
+          // Don't fail the profile update if meeting sync fails
+        }
+      }
+      
       res.json({
         success: true,
-        message: 'Profile updated successfully',
-        user
+        message: meetingsUpdated > 0 
+          ? `Profile updated successfully. ${meetingsUpdated} future meeting(s) updated with new Zoom link.`
+          : 'Profile updated successfully',
+        user,
+        meetingsUpdated
       });
     } catch (error) {
       console.error('Update user error:', error);

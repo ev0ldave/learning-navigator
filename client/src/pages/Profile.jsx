@@ -25,7 +25,13 @@ const Profile = () => {
       setLoading(true);
       const response = await usersAPI.update(user._id, formData);
       updateUser(response.data.user);
-      showSuccess('Profile updated');
+      
+      // Show appropriate success message based on whether meetings were updated
+      if (response.data.meetingsUpdated > 0) {
+        showSuccess(`Profile updated. ${response.data.meetingsUpdated} future meeting(s) updated with new Zoom link.`);
+      } else {
+        showSuccess('Profile updated');
+      }
     } catch (err) {
       showError('Failed to update profile');
     } finally {
