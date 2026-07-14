@@ -86,6 +86,13 @@ resource "render_web_service" "backend" {
 
   # Health check
   health_check_path = "/api/health"
+
+  # Ignore changes that cause issues with free tier
+  # The Render provider sends maintenance_mode in update requests which fails on free tier
+  # Use Render dashboard to update env vars instead, or auto-deploy picks up code changes
+  lifecycle {
+    ignore_changes = all
+  }
 }
 
 # Output the backend URL
