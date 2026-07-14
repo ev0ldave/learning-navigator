@@ -150,9 +150,26 @@ const meetingSchema = new mongoose.Schema({
 });
 
 // Pre-save hook to set meeting link for virtual meetings
-meetingSchema.pre('save', function(next) {
-  if (this.location === 'virtual' && !this.meetingLink && process.env.ZOOM_LINK) {
-    this.meetingLink = process.env.ZOOM_LINK;
+// Note: Navigator's zoom link should be passed explicitly when creating meetings
+// This hook serves as a fallback for legacy behavior
+meetingSchema.pre('save', async function(next) {
+  if (this.location === 'virtual' && !this.meetingLink) {
+    // Try to get navigator's zoom link if navigator is set
+    if (this.navigator) {
+      try {
+        const User = require('./User');
+        const navigator = await User.findById(this.navigator).select('zoomLink');
+        if (navigator?.zoomLink) {
+          this.meetingLink = navigator.zoomLink;
+        }
+      } catch (err) {
+        // Fallback silently
+      }
+    }
+    // Final fallback to environment variable (legacy support)
+    if (!this.meetingLink && process.env.ZOOM_LINK) {
+      this.meetingLink = process.env.ZOOM_LINK;
+    }
   }
   next();
 });

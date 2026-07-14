@@ -224,7 +224,8 @@ router.put('/:id',
     body('firstName').optional().trim().notEmpty(),
     body('lastName').optional().trim().notEmpty(),
     body('phone').optional().trim(),
-    body('bio').optional().trim().isLength({ max: 500 })
+    body('bio').optional().trim().isLength({ max: 500 }),
+    body('zoomLink').optional().trim().isURL().withMessage('Please enter a valid URL')
   ],
   async (req, res) => {
     try {
@@ -248,7 +249,7 @@ router.put('/:id',
         });
       }
       
-      const { firstName, lastName, phone, bio, profilePicture, notificationPreferences } = req.body;
+      const { firstName, lastName, phone, bio, profilePicture, notificationPreferences, zoomLink } = req.body;
       
       const updateData = {};
       if (firstName) updateData.firstName = firstName;
@@ -262,6 +263,15 @@ router.put('/:id',
       }
       if (bio !== undefined) updateData.bio = bio;
       if (profilePicture !== undefined) updateData.profilePicture = profilePicture;
+      
+      // Only allow navigators/admins to set zoom link
+      if (zoomLink !== undefined) {
+        const targetUser = await User.findById(req.params.id);
+        if (targetUser && (targetUser.role === 'learning_navigator' || targetUser.role === 'administrator')) {
+          updateData.zoomLink = zoomLink || null;
+        }
+      }
+      
       if (notificationPreferences) {
         // Automatically disable smsReminders if no phone number
         if (notificationPreferences.smsReminders && !phone) {

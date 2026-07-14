@@ -8,14 +8,15 @@ import { usersAPI } from '../services/api';
 import { formatPhoneNumber } from '../utils/phoneFormat';
 
 const Profile = () => {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, isNavigator } = useAuth();
   const { showSuccess, showError } = useNotification();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     firstName: user?.firstName || '',
     lastName: user?.lastName || '',
     phone: formatPhoneNumber(user?.phone || ''),
-    bio: user?.bio || ''
+    bio: user?.bio || '',
+    zoomLink: user?.zoomLink || ''
   });
 
   const handleSubmit = async (e) => {
@@ -83,6 +84,18 @@ const Profile = () => {
                       placeholder="(555) 123-4567"
                     />
                   </Grid>
+                  {isNavigator() && (
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="Zoom Meeting Link"
+                        value={formData.zoomLink}
+                        onChange={(e) => setFormData({ ...formData, zoomLink: e.target.value })}
+                        placeholder="https://zoom.us/j/your-meeting-id"
+                        helperText="Your personal Zoom link for virtual meetings with students"
+                      />
+                    </Grid>
+                  )}
                   <Grid item xs={12}>
                     <TextField
                       fullWidth

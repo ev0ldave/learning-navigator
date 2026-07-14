@@ -87,6 +87,11 @@ const userSchema = new mongoose.Schema({
     startTime: String, // HH:mm format
     endTime: String    // HH:mm format
   }],
+  // For learning navigators - their personal Zoom meeting link
+  zoomLink: {
+    type: String,
+    trim: true
+  },
   // For students - assigned learning navigator
   assignedNavigator: {
     type: mongoose.Schema.Types.ObjectId,
