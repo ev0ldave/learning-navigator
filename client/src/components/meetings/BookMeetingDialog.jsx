@@ -47,6 +47,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [error, setError] = useState(null);
   const [activeQuarter, setActiveQuarter] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const [formData, setFormData] = useState({
     navigatorId: '',
@@ -117,6 +118,8 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
       const phoneNumber = isStudent() ? formatPhoneNumber(user?.phone || '') : '';
       setFormData(prev => ({ ...prev, date: dateToUse, startTime: null, navigatorId, phoneNumber }));
       setAvailableSlots([]); // Clear slots when reopening
+      setFieldErrors({}); // Clear field errors when reopening
+      setError(null); // Clear general error when reopening
     }
   }, [open, initialDate]);
 
@@ -179,18 +182,42 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
   const handleSubmit = async () => {
     try {
       setError(null);
+      const errors = {};
+      
+      // Validate required fields and collect all errors
+      if (isStudent() && !formData.navigatorId) {
+        errors.navigatorId = 'Please select a navigator';
+      }
+      
+      if (isNavigator() && !formData.studentId) {
+        errors.studentId = 'Please select a student';
+      }
+      
+      if (!formData.startTime) {
+        errors.startTime = 'Please select a time slot from the available options';
+      }
+      
+      // Validate phone number for phone meetings
+      if (formData.location === 'phone' && !formData.phoneNumber?.trim()) {
+        errors.phoneNumber = 'Phone number is required for phone meetings';
+      }
+      
+      // If there are validation errors, set them and stop
+      if (Object.keys(errors).length > 0) {
+        setFieldErrors(errors);
+        const firstError = Object.values(errors)[0];
+        setError(firstError);
+        showError(firstError);
+        return;
+      }
+      
+      // Clear field errors if validation passes
+      setFieldErrors({});
       
       // Validate that a time slot has been selected
       if (!formData.startTime) {
         setError('Please select a time slot from the available options');
         showError('Please select a time slot');
-        return;
-      }
-      
-      // Validate that a navigator is selected (for students) or student is selected (for navigators)
-      if (isStudent() && !formData.navigatorId) {
-        setError('Please select a navigator');
-        showError('Please select a navigator');
         return;
       }
       
@@ -293,12 +320,15 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
           {/* Navigator/Student Selection */}
           {isStudent() && (
             <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Select Navigator</InputLabel>
+              <FormControl fullWidth error={!!fieldErrors.navigatorId}>
+                <InputLabel>Select Navigator *</InputLabel>
                 <Select
                   value={formData.navigatorId}
-                  onChange={(e) => setFormData({ ...formData, navigatorId: e.target.value })}
-                  label="Select Navigator"
+                  onChange={(e) => {
+                    setFormData({ ...formData, navigatorId: e.target.value });
+                    setFieldErrors(prev => ({ ...prev, navigatorId: undefined }));
+                  }}
+                  label="Select Navigator *"
                 >
                   {navigators.map((nav) => (
                     <MenuItem key={nav._id} value={nav._id}>
@@ -306,14 +336,19 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
                     </MenuItem>
                   ))}
                 </Select>
+                {fieldErrors.navigatorId && (
+                  <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.5 }}>
+                    {fieldErrors.navigatorId}
+                  </Typography>
+                )}
               </FormControl>
             </Grid>
           )}
 
           {isNavigator() && (
             <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Select Student</InputLabel>
+              <FormControl fullWidth error={!!fieldErrors.studentId}>
+                <InputLabel>Select Student *</InputLabel>
                 <Select
                   value={formData.studentId}
                   onChange={(e) => {
@@ -323,8 +358,9 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
                       studentId: e.target.value,
                       phoneNumber: formatPhoneNumber(selectedStudent?.phone || '')
                     });
+                    setFieldErrors(prev => ({ ...prev, studentId: undefined }));
                   }}
-                  label="Select Student"
+                  label="Select Student *"
                 >
                   {students.map((student) => (
                     <MenuItem key={student._id} value={student._id}>
@@ -332,6 +368,11 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
                     </MenuItem>
                   ))}
                 </Select>
+                {fieldErrors.studentId && (
+                  <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.5 }}>
+                    {fieldErrors.studentId}
+                  </Typography>
+                )}
               </FormControl>
             </Grid>
           )}
@@ -368,40 +409,56 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
           {/* Available Slots - required for ALL users */}
           {formData.navigatorId && (
             <Grid item xs={12}>
-              <Typography variant="subtitle2" gutterBottom>
-                Available Time Slots *
-                {isStudent() && (
-                  <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                    (Showing slots 24+ hours from now)
+              <Box sx={{ 
+                border: fieldErrors.startTime ? '1px solid' : 'none',
+                borderColor: 'error.main',
+                borderRadius: 1,
+                p: fieldErrors.startTime ? 1.5 : 0
+              }}>
+                <Typography variant="subtitle2" gutterBottom color={fieldErrors.startTime ? 'error' : 'inherit'}>
+                  Available Time Slots *
+                  {isStudent() && (
+                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                      (Showing slots 24+ hours from now)
+                    </Typography>
+                  )}
+                </Typography>
+                {loadingSlots ? (
+                  <CircularProgress size={24} />
+                ) : availableSlots.length > 0 ? (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {availableSlots.map((slot, index) => {
+                      const slotTime = new Date(slot.start).getTime();
+                      const isSelected = formData.startTime && formData.startTime.getTime() === slotTime;
+                      return (
+                        <Chip
+                          key={index}
+                          label={formatPacificTime(slot.start)}
+                          onClick={() => {
+                            handleSlotSelect(slot);
+                            setFieldErrors(prev => ({ ...prev, startTime: undefined }));
+                          }}
+                          color={isSelected ? 'primary' : 'default'}
+                          variant={isSelected ? 'filled' : 'outlined'}
+                          sx={fieldErrors.startTime && !isSelected ? { borderColor: 'error.main' } : {}}
+                        />
+                      );
+                    })}
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    {isStudent() 
+                      ? 'No available slots for this date. The navigator may not have availability, or all slots within this time frame are booked. Try selecting a different date.'
+                      : 'No available slots for selected date'
+                    }
                   </Typography>
                 )}
-              </Typography>
-              {loadingSlots ? (
-                <CircularProgress size={24} />
-              ) : availableSlots.length > 0 ? (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                  {availableSlots.map((slot, index) => {
-                    const slotTime = new Date(slot.start).getTime();
-                    const isSelected = formData.startTime && formData.startTime.getTime() === slotTime;
-                    return (
-                      <Chip
-                        key={index}
-                        label={formatPacificTime(slot.start)}
-                        onClick={() => handleSlotSelect(slot)}
-                        color={isSelected ? 'primary' : 'default'}
-                        variant={isSelected ? 'filled' : 'outlined'}
-                      />
-                    );
-                  })}
-                </Box>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  {isStudent() 
-                    ? 'No available slots for this date. The navigator may not have availability, or all slots within this time frame are booked. Try selecting a different date.'
-                    : 'No available slots for selected date'
-                  }
-                </Typography>
-              )}
+                {fieldErrors.startTime && (
+                  <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                    {fieldErrors.startTime}
+                  </Typography>
+                )}
+              </Box>
             </Grid>
           )}
 
@@ -502,11 +559,15 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
-                label="Student Phone Number"
+                label="Student Phone Number *"
                 value={formData.phoneNumber}
-                onChange={(e) => setFormData({ ...formData, phoneNumber: formatPhoneNumber(e.target.value) })}
+                onChange={(e) => {
+                  setFormData({ ...formData, phoneNumber: formatPhoneNumber(e.target.value) });
+                  setFieldErrors(prev => ({ ...prev, phoneNumber: undefined }));
+                }}
                 placeholder="(555) 123-4567"
-                helperText="Student's phone number for the meeting"
+                error={!!fieldErrors.phoneNumber}
+                helperText={fieldErrors.phoneNumber || "Student's phone number for the meeting"}
               />
             </Grid>
           )}

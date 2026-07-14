@@ -126,6 +126,56 @@ describe('Meeting Routes', () => {
 
       expect(res.body.success).toBe(false);
     });
+
+    it('should reject phone meeting without phone number', async () => {
+      const startTime = new Date();
+      startTime.setDate(startTime.getDate() + 2);
+      while (startTime.getDay() === 0 || startTime.getDay() === 6) {
+        startTime.setDate(startTime.getDate() + 1);
+      }
+      startTime.setHours(10, 0, 0, 0);
+
+      const res = await request(app)
+        .post('/api/meetings')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          navigatorId: navigator._id.toString(),
+          startTime: startTime.toISOString(),
+          endTime: new Date(startTime.getTime() + 30 * 60 * 1000).toISOString(),
+          title: 'Phone Meeting',
+          location: 'phone'
+        })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.errors[0].msg).toContain('Phone number is required');
+    });
+
+    it('should create phone meeting with phone number', async () => {
+      const startTime = new Date();
+      startTime.setDate(startTime.getDate() + 2);
+      while (startTime.getDay() === 0 || startTime.getDay() === 6) {
+        startTime.setDate(startTime.getDate() + 1);
+      }
+      startTime.setHours(10, 0, 0, 0);
+
+      const res = await request(app)
+        .post('/api/meetings')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          navigatorId: navigator._id.toString(),
+          startTime: startTime.toISOString(),
+          endTime: new Date(startTime.getTime() + 30 * 60 * 1000).toISOString(),
+          title: 'Phone Meeting',
+          location: 'phone',
+          phoneNumber: '555-123-4567'
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.meeting.location).toBe('phone');
+      expect(res.body.meeting.phoneNumber).toBe('555-123-4567');
+    });
   });
 
   describe('GET /api/meetings', () => {
@@ -435,7 +485,7 @@ describe('PUT /api/meetings/:id (reschedule)', () => {
       .expect(400);
 
     expect(res.body.success).toBe(false);
-    expect(res.body.message).toContain('not available');
+    expect(res.body.message).toContain('already has a meeting scheduled');
   });
 });
 
