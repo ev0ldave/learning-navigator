@@ -152,6 +152,17 @@ class MeetingService {
   }
 
   /**
+   * Validate navigator has zoom link configured for virtual meetings
+   */
+  validateVirtualMeeting(location, navigator) {
+    if (location === 'virtual' && !navigator.zoomLink) {
+      throw new MeetingValidationError(
+        'This navigator has not configured a Zoom meeting link. Please contact them to set up their Zoom link, or choose a phone meeting instead.'
+      );
+    }
+  }
+
+  /**
    * Full validation for creating a new meeting
    */
   async validateBooking(meetingData, user) {
@@ -163,6 +174,7 @@ class MeetingService {
     const navigator = await this.validateNavigator(navigatorId);
     this.validateStudentAdvanceBooking(meetingStart, user.role);
     this.validatePhoneMeeting(meetingData.location, meetingData.phoneNumber);
+    this.validateVirtualMeeting(meetingData.location, navigator);
     await this.validateQuarter(meetingStart);
     await this.validateAvailability(navigatorId, meetingStart, meetingEnd);
     await this.checkConflicts(navigatorId, meetingStart, meetingEnd);
