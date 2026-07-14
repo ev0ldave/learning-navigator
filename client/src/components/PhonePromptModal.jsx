@@ -7,8 +7,6 @@ import {
   TextField,
   Button,
   Typography,
-  FormControlLabel,
-  Checkbox,
   Box,
   Alert
 } from '@mui/material';
@@ -18,7 +16,6 @@ import { useAuth } from '../contexts/AuthContext';
 const PhonePromptModal = () => {
   const { showPhonePrompt, dismissPhonePrompt, savePhoneNumber } = useAuth();
   const [phone, setPhone] = useState('');
-  const [enableSms, setEnableSms] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -31,7 +28,7 @@ const PhonePromptModal = () => {
     setLoading(true);
     setError('');
 
-    const result = await savePhoneNumber(phone, enableSms);
+    const result = await savePhoneNumber(phone, false);
     
     setLoading(false);
     
@@ -75,14 +72,14 @@ const PhonePromptModal = () => {
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <PhoneIcon color="primary" />
-        Set Up SMS Notifications
+        Add Your Phone Number
       </DialogTitle>
       <DialogContent>
         <Typography variant="body1" sx={{ mb: 2 }}>
-          Would you like to receive SMS reminders 15 minutes before your meetings?
+          Would you like to add your phone number to your profile?
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Enter your phone number to enable SMS meeting reminders. You can change this 
+          Your phone number will be used for phone meetings. You can change this 
           anytime in your profile settings.
         </Typography>
 
@@ -102,21 +99,9 @@ const PhonePromptModal = () => {
           inputProps={{ maxLength: 14 }}
         />
 
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={enableSms}
-              onChange={(e) => setEnableSms(e.target.checked)}
-              color="primary"
-            />
-          }
-          label="Enable SMS meeting reminders"
-        />
-
         <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
           <Typography variant="caption" color="text.secondary">
-            SMS reminders are sent 15 minutes before each scheduled meeting.
-            Standard message rates may apply.
+            This number will be shown to your navigator for phone meetings.
           </Typography>
         </Box>
       </DialogContent>

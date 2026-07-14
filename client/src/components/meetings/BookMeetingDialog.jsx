@@ -57,7 +57,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
     title: 'Learning Navigator Session',
     description: '',
     location: 'virtual',
-    phoneNumber: formatPhoneNumber(user?.phone || ''),
+    phoneNumber: '', // Will be populated with student's phone when selected
     isRecurring: false,
     recurrenceFrequency: 'weekly',
     recurrenceEndDate: null
@@ -113,7 +113,9 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
       }
       // For navigators/admins, set themselves as the navigator
       const navigatorId = isNavigator() ? user._id : '';
-      setFormData(prev => ({ ...prev, date: dateToUse, startTime: null, navigatorId }));
+      // For students, pre-populate their own phone number
+      const phoneNumber = isStudent() ? formatPhoneNumber(user?.phone || '') : '';
+      setFormData(prev => ({ ...prev, date: dateToUse, startTime: null, navigatorId, phoneNumber }));
       setAvailableSlots([]); // Clear slots when reopening
     }
   }, [open, initialDate]);
@@ -314,7 +316,14 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
                 <InputLabel>Select Student</InputLabel>
                 <Select
                   value={formData.studentId}
-                  onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
+                  onChange={(e) => {
+                    const selectedStudent = students.find(s => s._id === e.target.value);
+                    setFormData({ 
+                      ...formData, 
+                      studentId: e.target.value,
+                      phoneNumber: formatPhoneNumber(selectedStudent?.phone || '')
+                    });
+                  }}
                   label="Select Student"
                 >
                   {students.map((student) => (
@@ -493,11 +502,11 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
-                label="Phone Number"
+                label="Student Phone Number"
                 value={formData.phoneNumber}
                 onChange={(e) => setFormData({ ...formData, phoneNumber: formatPhoneNumber(e.target.value) })}
                 placeholder="(555) 123-4567"
-                helperText="This number will be included in meeting notifications"
+                helperText="Student's phone number for the meeting"
               />
             </Grid>
           )}

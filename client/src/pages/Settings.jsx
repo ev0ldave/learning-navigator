@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Box, Card, CardContent, Typography, Switch, FormControlLabel, Divider, Button, TextField
+  Box, Card, CardContent, Typography, Switch, FormControlLabel, Divider, Button
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -11,9 +11,8 @@ const Settings = () => {
   const { showSuccess, showError } = useNotification();
   const [loading, setLoading] = useState(false);
   const [prefs, setPrefs] = useState(user?.notificationPreferences || {
-    email: true, inApp: true, meetingReminders: true, meetingChanges: true, smsReminders: false
+    email: true, inApp: true, meetingReminders: true, meetingChanges: true
   });
-  const [phone, setPhone] = useState(user?.phone || '');
 
   const handleSave = async () => {
     if (!user?._id) {
@@ -21,18 +20,9 @@ const Settings = () => {
       return;
     }
     
-    // Validate phone if SMS reminders are enabled
-    if (prefs.smsReminders && !phone.trim()) {
-      showError('Please enter a phone number for SMS reminders');
-      return;
-    }
-    
     try {
       setLoading(true);
       const updateData = { notificationPreferences: prefs };
-      if (phone.trim()) {
-        updateData.phone = phone.trim();
-      }
       const response = await usersAPI.update(user._id, updateData);
       if (response.data?.user) {
         updateUser(response.data.user);
@@ -99,36 +89,6 @@ const Settings = () => {
               Get notified when meetings are scheduled, rescheduled, or cancelled
             </Typography>
           </Box>
-
-          <Divider sx={{ my: 2 }} />
-
-          <Typography variant="subtitle1" gutterBottom sx={{ mt: 2, fontWeight: 500 }}>
-            SMS Notifications
-          </Typography>
-
-          <Box>
-            <FormControlLabel
-              control={<Switch checked={prefs.smsReminders} onChange={handleChange('smsReminders')} />}
-              label="SMS Meeting Reminders"
-            />
-            <Typography variant="body2" color="text.secondary" sx={{ ml: 6, mb: 2 }}>
-              Receive a text message 15 minutes before meetings start
-            </Typography>
-          </Box>
-
-          {prefs.smsReminders && (
-            <Box sx={{ ml: 6, mb: 2 }}>
-              <TextField
-                label="Phone Number"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(555) 123-4567"
-                size="small"
-                sx={{ width: 200 }}
-                helperText="US phone number for SMS alerts"
-              />
-            </Box>
-          )}
 
           <Box sx={{ mt: 3 }}>
             <Button variant="contained" onClick={handleSave} disabled={loading}>

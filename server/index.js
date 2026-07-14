@@ -3,7 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
-const session = require('express-session');
+const cookieSession = require('cookie-session');
 const passport = require('passport');
 const mongoSanitize = require('express-mongo-sanitize');
 
@@ -21,8 +21,8 @@ const adminRoutes = require('./routes/admin');
 // Import passport config
 require('./config/passport');
 
-// Import reminder scheduler
-const { startReminderScheduler } = require('./services/reminderScheduler');
+// Import zoom link sync service
+const { syncZoomLinks } = require('./services/zoomLinkSyncService');
 
 const app = express();
 
@@ -89,17 +89,14 @@ if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-// Session configuration
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'default-secret-change-in-production',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
+// Session configuration (cookie-based, stateless)
+app.use(cookieSession({
+  name: 'session',
+  keys: [process.env.SESSION_SECRET || 'default-secret-change-in-production'],
+  maxAge: 24 * 60 * 60 * 1000, // 24 hours
+  secure: process.env.NODE_ENV === 'production',
+  httpOnly: true,
+  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
 }));
 
 // Initialize Passport
@@ -156,13 +153,13 @@ const connectDB = async () => {
 
 // Only start server if not in test mode
 if (process.env.NODE_ENV !== 'test') {
-  connectDB().then(() => {
-    app.listen(PORT, () => {
+  connectDB().then(async () => {
+    app.listen(PORT, async () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
       
-      // Start the SMS reminder scheduler
-      startReminderScheduler();
+      // Sync zoom links for future meetings
+      await syncZoomLinks();
     });
   });
 }
