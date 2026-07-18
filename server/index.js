@@ -99,6 +99,22 @@ app.use(cookieSession({
   sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
 }));
 
+// Fix for Passport.js 0.6.0+ compatibility with cookie-session
+// cookie-session doesn't implement regenerate() and save() which Passport requires
+app.use((req, res, next) => {
+  if (req.session && !req.session.regenerate) {
+    req.session.regenerate = (cb) => {
+      cb();
+    };
+  }
+  if (req.session && !req.session.save) {
+    req.session.save = (cb) => {
+      cb();
+    };
+  }
+  next();
+});
+
 // Initialize Passport
 app.use(passport.initialize());
 app.use(passport.session());
