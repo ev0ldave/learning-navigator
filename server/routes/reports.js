@@ -1,15 +1,29 @@
 const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
-const Report = require('../models/Report');
-const Meeting = require('../models/Meeting');
-const Note = require('../models/Note');
-const User = require('../models/User');
+const { reportRepository } = require('../repositories');
+const reportService = require('../services/reportService');
+const { ReportValidationError } = require('../services/reportService');
 const { isAuthenticated, requireNavigator, validateObjectId } = require('../middleware/auth');
 const { generateReportPDF } = require('../services/pdfService');
+const { generateReportExcel } = require('../services/excelService');
 
 // Validate ObjectId params
 router.param('id', validateObjectId('id'));
+
+/**
+ * Error handler helper for ReportValidationError
+ */
+const handleServiceError = (error, res) => {
+  if (error instanceof ReportValidationError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message
+    });
+  }
+  console.error('Unexpected error:', error);
+  return res.status(500).json({ success: false, message: 'An error occurred' });
+};
 
 // @route   GET /api/reports
 // @desc    Get all reports for current user
@@ -18,26 +32,12 @@ router.get('/', isAuthenticated, requireNavigator, async (req, res) => {
   try {
     const { type, page = 1, limit = 20 } = req.query;
     
-    const query = { generatedBy: req.user._id };
-    if (type) query.type = type;
-    
-    // Admin can see all reports
-    if (req.user.role === 'administrator') {
-      delete query.generatedBy;
-    }
-    
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    const [reports, total] = await Promise.all([
-      Report.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .populate('scope.student', 'firstName lastName email')
-        .populate('scope.students', 'firstName lastName email')
-        .populate('generatedBy', 'firstName lastName'),
-      Report.countDocuments(query)
-    ]);
+    const { reports, total } = await reportRepository.findForUser(
+      req.user._id,
+      req.user.role,
+      { type },
+      { page: parseInt(page), limit: parseInt(limit) }
+    );
     
     res.json({
       success: true,
@@ -63,11 +63,7 @@ router.get('/', isAuthenticated, requireNavigator, async (req, res) => {
 // @access  Private/Navigator
 router.get('/:id', isAuthenticated, requireNavigator, async (req, res) => {
   try {
-    const report = await Report.findById(req.params.id)
-      .populate('scope.student', 'firstName lastName email profilePicture')
-      .populate('scope.students', 'firstName lastName email')
-      .populate('generatedBy', 'firstName lastName')
-      .populate('data.sessions.meeting');
+    const report = await reportRepository.findByIdWithDetails(req.params.id);
     
     if (!report) {
       return res.status(404).json({
@@ -76,13 +72,8 @@ router.get('/:id', isAuthenticated, requireNavigator, async (req, res) => {
       });
     }
     
-    // Check access
-    const hasAccess = 
-      req.user.role === 'administrator' ||
-      report.generatedBy._id.toString() === req.user._id.toString() ||
-      report.sharedWith.some(s => s.user.toString() === req.user._id.toString());
-    
-    if (!hasAccess) {
+    // Check access using service
+    if (!reportService.hasViewAccess(report, req.user)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -124,39 +115,8 @@ router.post('/individual',
         });
       }
       
-      const { studentId, startDate, endDate, title } = req.body;
-      
-      // Verify student exists
-      const student = await User.findById(studentId);
-      if (!student) {
-        return res.status(400).json({
-          success: false,
-          message: 'Student not found'
-        });
-      }
-      
-      // Generate report data
-      const reportData = await Report.generateIndividualReport(
-        req.user._id,
-        studentId,
-        new Date(startDate),
-        new Date(endDate)
-      );
-      
-      // Create report
-      const report = new Report({
-        generatedBy: req.user._id,
-        type: 'individual_progress',
-        title: title || `Progress Report - ${student.firstName} ${student.lastName}`,
-        scope: {
-          student: studentId,
-          startDate: new Date(startDate),
-          endDate: new Date(endDate)
-        },
-        data: reportData
-      });
-      
-      await report.save();
+      // Use ReportService for business logic
+      const report = await reportService.generateIndividualReport(req.body, req.user);
       
       await report.populate([
         { path: 'scope.student', select: 'firstName lastName email' },
@@ -169,6 +129,9 @@ router.post('/individual',
         report
       });
     } catch (error) {
+      if (error instanceof ReportValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Generate individual report error:', error);
       res.status(500).json({
         success: false,
@@ -201,88 +164,8 @@ router.post('/group',
         });
       }
       
-      const { studentIds, startDate, endDate, title } = req.body;
-      
-      // Build query - admins can see all meetings, navigators only their own
-      const meetingQuery = {
-        student: { $in: studentIds },
-        startTime: { $gte: new Date(startDate), $lte: new Date(endDate) }
-      };
-      
-      // Non-admin users can only see meetings where they are the navigator
-      if (req.user.role !== 'administrator') {
-        meetingQuery.navigator = req.user._id;
-      }
-      
-      // Get all meetings for the students
-      const meetings = await Meeting.find(meetingQuery)
-        .populate('student', 'firstName lastName');
-      
-      // Calculate group statistics
-      const totalSessions = meetings.length;
-      const completedSessions = meetings.filter(m => m.status === 'completed').length;
-      const cancelledSessions = meetings.filter(m => m.status === 'cancelled').length;
-      const noShowSessions = meetings.filter(m => m.status === 'no_show').length;
-      const totalDuration = meetings.reduce((sum, m) => sum + (m.duration || 0), 0);
-      
-      // Group by student
-      const studentStats = {};
-      meetings.forEach(meeting => {
-        const studentId = meeting.student._id.toString();
-        if (!studentStats[studentId]) {
-          studentStats[studentId] = {
-            student: meeting.student,
-            totalSessions: 0,
-            completed: 0,
-            cancelled: 0,
-            noShow: 0
-          };
-        }
-        studentStats[studentId].totalSessions++;
-        if (meeting.status === 'completed') studentStats[studentId].completed++;
-        if (meeting.status === 'cancelled') studentStats[studentId].cancelled++;
-        if (meeting.status === 'no_show') studentStats[studentId].noShow++;
-      });
-      
-      const report = new Report({
-        generatedBy: req.user._id,
-        type: 'group_progress',
-        title: title || `Group Progress Report`,
-        scope: {
-          students: studentIds,
-          startDate: new Date(startDate),
-          endDate: new Date(endDate)
-        },
-        data: {
-          summary: {
-            totalSessions,
-            completedSessions,
-            cancelledSessions,
-            noShowSessions,
-            totalDuration,
-            averageSessionDuration: totalSessions > 0 ? Math.round(totalDuration / totalSessions) : 0
-          },
-          sessions: meetings.map(m => {
-            const studentName = m.student ? `${m.student.firstName || ''} ${m.student.lastName || ''}`.trim() : 'Unknown';
-            return {
-              meeting: m._id,
-              date: m.startTime,
-              duration: m.duration,
-              status: m.status,
-              studentName: studentName || 'Unknown',
-              studentId: m.student?._id
-            };
-          }),
-          progress: {
-            attendanceRate: totalSessions > 0 ? Math.round((completedSessions / totalSessions) * 100) : 0
-          },
-          customFields: {
-            studentBreakdown: Object.values(studentStats)
-          }
-        }
-      });
-      
-      await report.save();
+      // Use ReportService for business logic
+      const report = await reportService.generateGroupReport(req.body, req.user);
       
       await report.populate([
         { path: 'scope.students', select: 'firstName lastName email' },
@@ -295,6 +178,9 @@ router.post('/group',
         report
       });
     } catch (error) {
+      if (error instanceof ReportValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Generate group report error:', error);
       res.status(500).json({
         success: false,
@@ -325,58 +211,8 @@ router.post('/session-history',
         });
       }
       
-      const { startDate, endDate, studentId, title } = req.body;
-      
-      const meetingQuery = {
-        navigator: req.user._id,
-        startTime: { $gte: new Date(startDate), $lte: new Date(endDate) }
-      };
-      
-      if (studentId) {
-        meetingQuery.student = studentId;
-      }
-      
-      const meetings = await Meeting.find(meetingQuery)
-        .sort({ startTime: -1 })
-        .populate('student', 'firstName lastName email')
-        .populate('notes');
-      
-      // Get notes for these meetings
-      const meetingIds = meetings.map(m => m._id);
-      const notes = await Note.find({
-        meeting: { $in: meetingIds },
-        navigator: req.user._id
-      });
-      
-      const report = new Report({
-        generatedBy: req.user._id,
-        type: 'session_history',
-        title: title || 'Session History Report',
-        scope: {
-          student: studentId || undefined,
-          startDate: new Date(startDate),
-          endDate: new Date(endDate)
-        },
-        data: {
-          summary: {
-            totalSessions: meetings.length,
-            completedSessions: meetings.filter(m => m.status === 'completed').length,
-            cancelledSessions: meetings.filter(m => m.status === 'cancelled').length,
-            noShowSessions: meetings.filter(m => m.status === 'no_show').length,
-            totalDuration: meetings.reduce((sum, m) => sum + (m.duration || 0), 0)
-          },
-          sessions: meetings.map(m => ({
-            meeting: m._id,
-            date: m.startTime,
-            duration: m.duration,
-            status: m.status,
-            student: m.student,
-            notes: notes.filter(n => n.meeting?.toString() === m._id.toString()).length
-          }))
-        }
-      });
-      
-      await report.save();
+      // Use ReportService for business logic
+      const report = await reportService.generateSessionHistoryReport(req.body, req.user);
       
       res.status(201).json({
         success: true,
@@ -384,6 +220,9 @@ router.post('/session-history',
         report
       });
     } catch (error) {
+      if (error instanceof ReportValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Generate session history error:', error);
       res.status(500).json({
         success: false,
@@ -400,17 +239,14 @@ router.get('/:id/export/:format', isAuthenticated, requireNavigator, async (req,
   try {
     const { id, format } = req.params;
     
-    if (!['pdf', 'json'].includes(format)) {
+    if (!['pdf', 'json', 'xlsx'].includes(format)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid export format. Use pdf or json'
+        message: 'Invalid export format. Use pdf, xlsx, or json'
       });
     }
     
-    const report = await Report.findById(id)
-      .populate('scope.student', 'firstName lastName email')
-      .populate('scope.students', 'firstName lastName email')
-      .populate('generatedBy', 'firstName lastName');
+    const report = await reportRepository.findByIdWithDetails(id);
     
     if (!report) {
       return res.status(404).json({
@@ -419,9 +255,8 @@ router.get('/:id/export/:format', isAuthenticated, requireNavigator, async (req,
       });
     }
     
-    // Check access
-    if (req.user.role !== 'administrator' && 
-        report.generatedBy._id.toString() !== req.user._id.toString()) {
+    // Check access using service
+    if (!reportService.hasViewAccess(report, req.user)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -450,6 +285,25 @@ router.get('/:id/export/:format', isAuthenticated, requireNavigator, async (req,
       }
     }
     
+    // For Excel export
+    if (format === 'xlsx') {
+      try {
+        const excelBuffer = await generateReportExcel(report);
+        
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_${timestamp}.xlsx"`);
+        res.setHeader('Content-Length', excelBuffer.length);
+        
+        return res.send(Buffer.from(excelBuffer));
+      } catch (excelError) {
+        console.error('Excel generation error:', excelError);
+        return res.status(500).json({
+          success: false,
+          message: 'Error generating Excel file'
+        });
+      }
+    }
+    
     // For JSON, return directly
     if (format === 'json') {
       res.setHeader('Content-Type', 'application/json');
@@ -458,11 +312,7 @@ router.get('/:id/export/:format', isAuthenticated, requireNavigator, async (req,
     }
     
     // Track export
-    report.exports.push({
-      format,
-      exportedAt: new Date()
-    });
-    await report.save();
+    await reportRepository.addExport(id, format);
     
   } catch (error) {
     console.error('Export report error:', error);
@@ -478,30 +328,17 @@ router.get('/:id/export/:format', isAuthenticated, requireNavigator, async (req,
 // @access  Private/Navigator
 router.delete('/:id', isAuthenticated, requireNavigator, async (req, res) => {
   try {
-    const report = await Report.findById(req.params.id);
-    
-    if (!report) {
-      return res.status(404).json({
-        success: false,
-        message: 'Report not found'
-      });
-    }
-    
-    if (req.user.role !== 'administrator' && 
-        report.generatedBy.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only delete your own reports'
-      });
-    }
-    
-    await Report.findByIdAndDelete(req.params.id);
+    // Use ReportService for business logic
+    await reportService.deleteReport(req.params.id, req.user);
     
     res.json({
       success: true,
       message: 'Report deleted successfully'
     });
   } catch (error) {
+    if (error instanceof ReportValidationError) {
+      return handleServiceError(error, res);
+    }
     console.error('Delete report error:', error);
     res.status(500).json({
       success: false,
@@ -509,5 +346,78 @@ router.delete('/:id', isAuthenticated, requireNavigator, async (req, res) => {
     });
   }
 });
+
+// @route   GET /api/reports/config/options
+// @desc    Get available report dimensions and metrics
+// @access  Private/Navigator
+router.get('/config/options', isAuthenticated, requireNavigator, async (req, res) => {
+  try {
+    const options = reportService.getReportOptions();
+    res.json({
+      success: true,
+      options
+    });
+  } catch (error) {
+    console.error('Get report options error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching report options'
+    });
+  }
+});
+
+// @route   POST /api/reports/custom
+// @desc    Generate a custom multi-dimensional report
+// @access  Private/Navigator
+router.post('/custom',
+  isAuthenticated,
+  requireNavigator,
+  [
+    body('title').optional().trim(),
+    body('startDate').isISO8601().withMessage('Valid start date required'),
+    body('endDate').isISO8601().withMessage('Valid end date required'),
+    body('studentIds').optional().isArray(),
+    body('studentIds.*').optional().isMongoId(),
+    body('metrics').isArray({ min: 1 }).withMessage('At least one metric required'),
+    body('metrics.*').isString(),
+    body('groupBy').optional().isString(),
+    body('includeDetails').optional().isBoolean(),
+    body('filters').optional().isObject()
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array()
+        });
+      }
+      
+      const report = await reportService.generateCustomReport(req.body, req.user);
+      
+      await report.populate([
+        { path: 'scope.student', select: 'firstName lastName email' },
+        { path: 'scope.students', select: 'firstName lastName email' },
+        { path: 'generatedBy', select: 'firstName lastName' }
+      ]);
+      
+      res.status(201).json({
+        success: true,
+        message: 'Custom report generated successfully',
+        report
+      });
+    } catch (error) {
+      if (error instanceof ReportValidationError) {
+        return handleServiceError(error, res);
+      }
+      console.error('Generate custom report error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error generating custom report'
+      });
+    }
+  }
+);
 
 module.exports = router;

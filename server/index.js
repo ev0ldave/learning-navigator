@@ -159,7 +159,14 @@ const PORT = process.env.PORT || 5000;
 const connectDB = async () => {
   try {
     const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/learning-navigator';
-    await mongoose.connect(mongoURI);
+    await mongoose.connect(mongoURI, {
+      // Connection pool settings for better performance
+      maxPoolSize: 10,      // Maximum connections in the pool
+      minPoolSize: 2,       // Minimum connections maintained
+      maxIdleTimeMS: 30000, // Close idle connections after 30s
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000
+    });
     console.log('✅ MongoDB connected successfully');
   } catch (error) {
     console.error('❌ MongoDB connection error:', error.message);

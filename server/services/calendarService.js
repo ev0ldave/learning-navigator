@@ -3,6 +3,53 @@ const User = require('../models/User');
 
 const APP_CALENDAR_NAME = 'Case Management Cohort';
 
+/**
+ * LRU Cache for OAuth2 clients - prevents creating new clients for each operation
+ * Caches by userId, with max 100 entries and 10 minute TTL
+ */
+class OAuthClientCache {
+  constructor(maxSize = 100, ttlMs = 10 * 60 * 1000) {
+    this._cache = new Map();
+    this._maxSize = maxSize;
+    this._ttlMs = ttlMs;
+  }
+
+  get(userId) {
+    const entry = this._cache.get(userId.toString());
+    if (!entry) return null;
+    
+    // Check TTL
+    if (Date.now() - entry.timestamp > this._ttlMs) {
+      this._cache.delete(userId.toString());
+      return null;
+    }
+    
+    // Move to end (most recently used)
+    this._cache.delete(userId.toString());
+    this._cache.set(userId.toString(), entry);
+    return entry.client;
+  }
+
+  set(userId, client) {
+    const key = userId.toString();
+    
+    // Evict oldest if at capacity
+    if (this._cache.size >= this._maxSize) {
+      const firstKey = this._cache.keys().next().value;
+      this._cache.delete(firstKey);
+    }
+    
+    this._cache.set(key, { client, timestamp: Date.now() });
+  }
+
+  clear() {
+    this._cache.clear();
+  }
+}
+
+// Singleton cache instance
+const oauthClientCache = new OAuthClientCache();
+
 // Initialize OAuth2 client
 const createOAuth2Client = () => {
   return new google.auth.OAuth2(
@@ -12,10 +59,22 @@ const createOAuth2Client = () => {
   );
 };
 
-// Get authenticated calendar client for a user
-const getCalendarClient = async (userId) => {
+/**
+ * Get authenticated calendar client for a user
+ * OPTIMIZATION: Caches OAuth2 clients to reduce connection overhead
+ */
+const getCalendarClient = async (userId, userWithTokens = null) => {
   try {
-    const user = await User.findById(userId).select('+googleAccessToken +googleRefreshToken');
+    // Check cache first
+    const cached = oauthClientCache.get(userId);
+    if (cached) {
+      return cached;
+    }
+
+    // Fetch user with tokens if not provided
+    const user = userWithTokens?.googleAccessToken 
+      ? userWithTokens 
+      : await User.findById(userId).select('+googleAccessToken +googleRefreshToken');
     
     if (!user || !user.googleAccessToken) {
       throw new Error('User has no Google Calendar access');
@@ -32,10 +91,17 @@ const getCalendarClient = async (userId) => {
       if (tokens.access_token) {
         user.googleAccessToken = tokens.access_token;
         await user.save();
+        // Clear cache on token refresh to ensure fresh client
+        oauthClientCache.clear();
       }
     });
     
-    return google.calendar({ version: 'v3', auth: oauth2Client });
+    const calendarClient = google.calendar({ version: 'v3', auth: oauth2Client });
+    
+    // Cache the client
+    oauthClientCache.set(userId, calendarClient);
+    
+    return calendarClient;
   } catch (error) {
     console.error('Error getting calendar client:', error);
     throw error;
@@ -90,6 +156,10 @@ const getOrCreateAppCalendar = async (userId) => {
 };
 
 // Create a calendar event
+/**
+ * OPTIMIZATION: Accepts pre-populated meeting objects (student/navigator populated)
+ * to avoid duplicate database lookups
+ */
 const createCalendarEvent = async (meeting) => {
   try {
     // Skip if no Google Calendar configuration
@@ -98,8 +168,13 @@ const createCalendarEvent = async (meeting) => {
       return { skipped: true };
     }
     
-    const student = await User.findById(meeting.student);
-    const navigator = await User.findById(meeting.navigator);
+    // Use populated data if available, otherwise fetch (backwards compatibility)
+    const student = meeting.student?.email 
+      ? meeting.student 
+      : await User.findById(meeting.student);
+    const navigator = meeting.navigator?.email 
+      ? meeting.navigator 
+      : await User.findById(meeting.navigator);
     
     if (!student || !navigator) {
       throw new Error('Could not find meeting participants');
@@ -189,8 +264,13 @@ const updateCalendarEvent = async (meeting) => {
       return { skipped: true };
     }
     
-    const student = await User.findById(meeting.student);
-    const navigator = await User.findById(meeting.navigator);
+    // Use populated data if available, otherwise fetch
+    const student = meeting.student?.email 
+      ? meeting.student 
+      : await User.findById(meeting.student);
+    const navigator = meeting.navigator?.email 
+      ? meeting.navigator 
+      : await User.findById(meeting.navigator);
     
     const event = {
       summary: meeting.title,
@@ -252,8 +332,13 @@ const deleteCalendarEvent = async (meeting) => {
       return { skipped: true };
     }
     
-    const navigator = await User.findById(meeting.navigator);
-    const student = await User.findById(meeting.student);
+    // Use populated data if available, otherwise fetch
+    const navigator = meeting.navigator?.email 
+      ? meeting.navigator 
+      : await User.findById(meeting.navigator);
+    const student = meeting.student?.email 
+      ? meeting.student 
+      : await User.findById(meeting.student);
     
     // Delete from navigator's app calendar
     if (meeting.navigatorCalendarEventId) {
@@ -322,7 +407,11 @@ module.exports = {
   // Direct versions for job queue (throw errors instead of catching)
   createCalendarEventDirect,
   updateCalendarEventDirect,
-  deleteCalendarEventDirect
+  deleteCalendarEventDirect,
+  // Export cache for testing/management
+  OAuthClientCache,
+  oauthClientCache,
+  clearOAuthCache: () => oauthClientCache.clear()
 };
 
 // Direct versions that throw errors for job queue retry handling
@@ -332,8 +421,13 @@ async function createCalendarEventDirect(meeting) {
     return { skipped: true };
   }
   
-  const student = await User.findById(meeting.student);
-  const navigator = await User.findById(meeting.navigator);
+  // Use populated data if available, otherwise fetch
+  const student = meeting.student?.email 
+    ? meeting.student 
+    : await User.findById(meeting.student);
+  const navigator = meeting.navigator?.email 
+    ? meeting.navigator 
+    : await User.findById(meeting.navigator);
   
   if (!student || !navigator) {
     throw new Error('Could not find meeting participants');
@@ -419,8 +513,13 @@ async function updateCalendarEventDirect(meeting) {
     return { skipped: true };
   }
   
-  const student = await User.findById(meeting.student);
-  const navigator = await User.findById(meeting.navigator);
+  // Use populated data if available, otherwise fetch
+  const student = meeting.student?.email 
+    ? meeting.student 
+    : await User.findById(meeting.student);
+  const navigator = meeting.navigator?.email 
+    ? meeting.navigator 
+    : await User.findById(meeting.navigator);
   
   const event = {
     summary: meeting.title,

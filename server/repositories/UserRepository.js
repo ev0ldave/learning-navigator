@@ -17,6 +17,13 @@ class UserRepository extends BaseRepository {
     });
   }
 
+  async findStudent(id) {
+    return this.findOne({
+      _id: id,
+      role: 'student'
+    });
+  }
+
   async findByEmail(email) {
     return this.findOne({ email: email.toLowerCase() });
   }

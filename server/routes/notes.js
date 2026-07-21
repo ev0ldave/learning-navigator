@@ -1,19 +1,33 @@
 const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
-const Note = require('../models/Note');
-const Meeting = require('../models/Meeting');
-const User = require('../models/User');
+const { noteRepository, meetingRepository } = require('../repositories');
+const noteService = require('../services/noteService');
+const { NoteValidationError } = require('../services/noteService');
 const { 
   isAuthenticated, 
   requireNavigator,
   requireStudentAccess,
   validateObjectId
 } = require('../middleware/auth');
-const { sendNoteSharedNotification } = require('../services/notificationService');
 
 // Validate ObjectId params
 router.param('id', validateObjectId('id'));
+
+/**
+ * Error handler helper for NoteValidationError
+ */
+const handleServiceError = (error, res) => {
+  if (error instanceof NoteValidationError) {
+    const response = { success: false, message: error.message };
+    if (error.details) {
+      Object.assign(response, error.details);
+    }
+    return res.status(error.statusCode).json(response);
+  }
+  console.error('Unexpected error:', error);
+  return res.status(500).json({ success: false, message: 'An error occurred' });
+};
 
 // @route   GET /api/notes
 // @desc    Get notes (filtered by user role)
@@ -22,52 +36,21 @@ router.get('/', isAuthenticated, async (req, res) => {
   try {
     const { studentId, type, page = 1, limit = 20 } = req.query;
     
-    const query = {};
-    
-    // Students can only see shared notes about themselves
-    if (req.user.role === 'student') {
-      query.student = req.user._id;
-      query.type = 'shared';
-    } 
-    // Navigators see notes they created
-    else if (req.user.role === 'learning_navigator') {
-      if (studentId) {
-        query.student = studentId;
-      }
-      query.navigator = req.user._id;
-      if (type) query.type = type;
-    }
-    // Admin sees all
-    else {
-      if (studentId) query.student = studentId;
-      if (type) query.type = type;
-    }
-    
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    let [notes, total] = await Promise.all([
-      Note.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .populate('student', 'firstName lastName email')
-        .populate('navigator', 'firstName lastName email')
-        .populate('meeting', 'title startTime'),
-      Note.countDocuments(query)
-    ]);
+    const { notes, total } = await noteRepository.findForUser(
+      req.user._id,
+      req.user.role,
+      { studentId, type },
+      { page: parseInt(page), limit: parseInt(limit) }
+    );
     
     // Strip private content from notes for students
-    if (req.user.role === 'student') {
-      notes = notes.map(note => {
-        const noteObj = note.toObject();
-        delete noteObj.privateContent;
-        return noteObj;
-      });
-    }
+    const sanitizedNotes = req.user.role === 'student'
+      ? noteService.sanitizeNotesForStudent(notes)
+      : notes;
     
     res.json({
       success: true,
-      notes,
+      notes: sanitizedNotes,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -92,33 +75,15 @@ router.get('/student/:studentId', isAuthenticated, async (req, res) => {
     const { studentId } = req.params;
     const { type } = req.query;
     
-    const query = { student: studentId };
-    
-    // Admin can see all notes for the student
-    if (req.user.role === 'administrator') {
-      if (type) query.type = type;
-    }
-    // Students can only see shared notes
-    else if (req.user.role === 'student') {
-      if (req.user._id.toString() !== studentId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access denied'
-        });
-      }
-      query.type = 'shared';
-    }
-    // Navigators can see all notes they or other navigators created for this student
-    else if (req.user.role === 'learning_navigator') {
-      // Show all notes for the student (not just navigator's own notes)
-      // This allows seeing session notes from all navigators
-      if (type) query.type = type;
+    // Students can only see their own shared notes
+    if (req.user.role === 'student' && req.user._id.toString() !== studentId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
     }
     
-    const notes = await Note.find(query)
-      .sort({ createdAt: -1 })
-      .populate('navigator', 'firstName lastName')
-      .populate('meeting', 'title startTime');
+    const notes = await noteRepository.findForStudent(studentId, req.user.role, { type });
     
     res.json({
       success: true,
@@ -141,7 +106,7 @@ router.get('/meeting/:meetingId', isAuthenticated, async (req, res) => {
     const { meetingId } = req.params;
     
     // Verify meeting exists and user has access
-    const meeting = await Meeting.findById(meetingId);
+    const meeting = await meetingRepository.findById(meetingId);
     if (!meeting) {
       return res.status(404).json({
         success: false,
@@ -149,30 +114,14 @@ router.get('/meeting/:meetingId', isAuthenticated, async (req, res) => {
       });
     }
     
-    // Check access
-    const hasAccess = 
-      req.user.role === 'administrator' ||
-      meeting.student.toString() === req.user._id.toString() ||
-      meeting.navigator.toString() === req.user._id.toString();
-    
-    if (!hasAccess) {
+    if (!noteService.hasMeetingAccess(meeting, req.user)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
       });
     }
     
-    const query = { meeting: meetingId };
-    
-    // Students can only see shared notes
-    if (req.user.role === 'student') {
-      query.type = 'shared';
-    }
-    
-    const notes = await Note.find(query)
-      .sort({ createdAt: -1 })
-      .populate('navigator', 'firstName lastName')
-      .populate('createdBy', 'firstName lastName');
+    const notes = await noteRepository.findForMeeting(meetingId, req.user.role);
     
     res.json({
       success: true,
@@ -192,11 +141,7 @@ router.get('/meeting/:meetingId', isAuthenticated, async (req, res) => {
 // @access  Private
 router.get('/:id', isAuthenticated, async (req, res) => {
   try {
-    const note = await Note.findById(req.params.id)
-      .populate('student', 'firstName lastName email')
-      .populate('navigator', 'firstName lastName email')
-      .populate('meeting', 'title startTime')
-      .populate('createdBy', 'firstName lastName');
+    const note = await noteRepository.findByIdWithDetails(req.params.id);
     
     if (!note) {
       return res.status(404).json({
@@ -205,13 +150,7 @@ router.get('/:id', isAuthenticated, async (req, res) => {
       });
     }
     
-    // Check access
-    const hasAccess = 
-      req.user.role === 'administrator' ||
-      note.navigator._id.toString() === req.user._id.toString() ||
-      (note.type === 'shared' && note.student._id.toString() === req.user._id.toString());
-    
-    if (!hasAccess) {
+    if (!noteService.hasViewAccess(note, req.user)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -256,74 +195,10 @@ router.post('/',
         });
       }
       
-      const { studentId, title, sharedContent, privateContent, content, type, meetingId, tags } = req.body;
+      // Use NoteService for business logic
+      const note = await noteService.createNote(req.body, req.user);
       
-      // Require at least some content
-      if (!sharedContent && !privateContent && !content) {
-        return res.status(400).json({
-          success: false,
-          message: 'At least shared notes or private notes content is required'
-        });
-      }
-      
-      // Verify student exists
-      const student = await User.findOne({ _id: studentId, role: 'student' });
-      if (!student) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid student'
-        });
-      }
-      
-      // Verify meeting if provided
-      if (meetingId) {
-        const meeting = await Meeting.findById(meetingId);
-        if (!meeting) {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid meeting'
-          });
-        }
-      }
-      
-      // Determine type based on content
-      // If there's shared content, mark as shared so student can see it
-      const noteType = sharedContent ? 'shared' : (type || 'private');
-      
-      const note = new Note({
-        student: studentId,
-        navigator: req.user._id,
-        meeting: meetingId || undefined,
-        title,
-        sharedContent: sharedContent || '',
-        privateContent: privateContent || '',
-        content: content || sharedContent || '', // Legacy field fallback
-        type: noteType,
-        tags: tags || [],
-        createdBy: req.user._id
-      });
-      
-      await note.save();
-      
-      // If note is shared and attached to meeting, add to meeting notes
-      if (meetingId) {
-        await Meeting.findByIdAndUpdate(meetingId, {
-          $push: { notes: note._id }
-        });
-      }
-      
-      // If shared, send notification and email
-      if (noteType === 'shared') {
-        note.sharedAt = new Date();
-        await note.save();
-        
-        try {
-          await sendNoteSharedNotification(note, student);
-        } catch (notifError) {
-          console.error('Note notification failed:', notifError);
-        }
-      }
-      
+      // Populate for response
       await note.populate([
         { path: 'student', select: 'firstName lastName email' },
         { path: 'navigator', select: 'firstName lastName email' }
@@ -335,6 +210,9 @@ router.post('/',
         note
       });
     } catch (error) {
+      if (error instanceof NoteValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Create note error:', error);
       res.status(500).json({
         success: false,
@@ -367,57 +245,8 @@ router.put('/:id',
         });
       }
       
-      const note = await Note.findById(req.params.id);
-      
-      if (!note) {
-        return res.status(404).json({
-          success: false,
-          message: 'Note not found'
-        });
-      }
-      
-      // Only the creator or admin can edit
-      if (req.user.role !== 'administrator' && 
-          note.navigator.toString() !== req.user._id.toString()) {
-        return res.status(403).json({
-          success: false,
-          message: 'You can only edit your own notes'
-        });
-      }
-      
-      const { title, sharedContent, privateContent, content, tags } = req.body;
-      
-      // Track edit if content changed
-      const contentChanged = 
-        (sharedContent !== undefined && sharedContent !== note.sharedContent) ||
-        (privateContent !== undefined && privateContent !== note.privateContent) ||
-        (content !== undefined && content !== note.content);
-      
-      if (contentChanged) {
-        note.editHistory.push({
-          editedAt: new Date(),
-          editedBy: req.user._id,
-          previousContent: JSON.stringify({ 
-            shared: note.sharedContent, 
-            private: note.privateContent,
-            content: note.content 
-          })
-        });
-      }
-      
-      if (sharedContent !== undefined) note.sharedContent = sharedContent;
-      if (privateContent !== undefined) note.privateContent = privateContent;
-      if (content !== undefined) note.content = content;
-      if (title) note.title = title;
-      if (tags) note.tags = tags;
-      
-      // Update type based on shared content
-      if (sharedContent) {
-        note.type = 'shared';
-        if (!note.sharedAt) note.sharedAt = new Date();
-      }
-      
-      await note.save();
+      // Use NoteService for business logic
+      const note = await noteService.updateNote(req.params.id, req.body, req.user);
       
       await note.populate([
         { path: 'student', select: 'firstName lastName email' },
@@ -430,6 +259,9 @@ router.put('/:id',
         note
       });
     } catch (error) {
+      if (error instanceof NoteValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Update note error:', error);
       res.status(500).json({
         success: false,
@@ -444,43 +276,8 @@ router.put('/:id',
 // @access  Private/Navigator
 router.put('/:id/share', isAuthenticated, requireNavigator, async (req, res) => {
   try {
-    const note = await Note.findById(req.params.id);
-    
-    if (!note) {
-      return res.status(404).json({
-        success: false,
-        message: 'Note not found'
-      });
-    }
-    
-    if (req.user.role !== 'administrator' && 
-        note.navigator.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only share your own notes'
-      });
-    }
-    
-    if (note.type === 'shared') {
-      return res.status(400).json({
-        success: false,
-        message: 'Note is already shared'
-      });
-    }
-    
-    note.type = 'shared';
-    note.sharedAt = new Date();
-    await note.save();
-    
-    // Get student for notification
-    const student = await User.findById(note.student);
-    
-    // Send notification
-    try {
-      await sendNoteSharedNotification(note, student);
-    } catch (notifError) {
-      console.error('Note notification failed:', notifError);
-    }
+    // Use NoteService for business logic
+    const note = await noteService.shareNote(req.params.id, req.user);
     
     await note.populate([
       { path: 'student', select: 'firstName lastName email' },
@@ -493,6 +290,9 @@ router.put('/:id/share', isAuthenticated, requireNavigator, async (req, res) => 
       note
     });
   } catch (error) {
+    if (error instanceof NoteValidationError) {
+      return handleServiceError(error, res);
+    }
     console.error('Share note error:', error);
     res.status(500).json({
       success: false,
@@ -506,37 +306,17 @@ router.put('/:id/share', isAuthenticated, requireNavigator, async (req, res) => 
 // @access  Private/Navigator
 router.delete('/:id', isAuthenticated, requireNavigator, async (req, res) => {
   try {
-    const note = await Note.findById(req.params.id);
-    
-    if (!note) {
-      return res.status(404).json({
-        success: false,
-        message: 'Note not found'
-      });
-    }
-    
-    if (req.user.role !== 'administrator' && 
-        note.navigator.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only delete your own notes'
-      });
-    }
-    
-    // Remove from meeting if attached
-    if (note.meeting) {
-      await Meeting.findByIdAndUpdate(note.meeting, {
-        $pull: { notes: note._id }
-      });
-    }
-    
-    await Note.findByIdAndDelete(req.params.id);
+    // Use NoteService for business logic
+    await noteService.deleteNote(req.params.id, req.user);
     
     res.json({
       success: true,
       message: 'Note deleted successfully'
     });
   } catch (error) {
+    if (error instanceof NoteValidationError) {
+      return handleServiceError(error, res);
+    }
     console.error('Delete note error:', error);
     res.status(500).json({
       success: false,

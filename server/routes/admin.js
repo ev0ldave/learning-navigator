@@ -8,7 +8,22 @@ const {
   retryJob, 
   cleanupOldJobs 
 } = require('../services/jobQueue');
-const SchoolQuarter = require('../models/SchoolQuarter');
+const quarterService = require('../services/quarterService');
+const { QuarterValidationError } = require('../services/quarterService');
+
+/**
+ * Error handler helper for QuarterValidationError
+ */
+const handleServiceError = (error, res) => {
+  if (error instanceof QuarterValidationError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message
+    });
+  }
+  console.error('Unexpected error:', error);
+  return res.status(500).json({ success: false, message: 'An error occurred' });
+};
 
 // @route   GET /api/admin/jobs/stats
 // @desc    Get job queue statistics
@@ -100,9 +115,7 @@ router.post('/jobs/cleanup', isAuthenticated, requireAdmin, async (req, res) => 
 // @access  Admin only
 router.get('/quarters', isAuthenticated, requireAdmin, async (req, res) => {
   try {
-    const quarters = await SchoolQuarter.find()
-      .sort({ year: -1, quarter: 1 })
-      .populate('createdBy', 'firstName lastName email');
+    const quarters = await quarterService.getAllQuarters();
     
     res.json({
       success: true,
@@ -122,7 +135,7 @@ router.get('/quarters', isAuthenticated, requireAdmin, async (req, res) => {
 // @access  Private (any authenticated user)
 router.get('/quarters/active', isAuthenticated, async (req, res) => {
   try {
-    const activeQuarter = await SchoolQuarter.getActiveQuarter();
+    const activeQuarter = await quarterService.getActiveQuarter();
     
     res.json({
       success: true,
@@ -162,43 +175,18 @@ router.post('/quarters',
         });
       }
 
-      const { name, year, quarter, startDate, endDate, isActive } = req.body;
-
-      // Validate end date is after start date
-      if (new Date(endDate) <= new Date(startDate)) {
-        return res.status(400).json({
-          success: false,
-          message: 'End date must be after start date'
-        });
-      }
-
-      // Check if quarter already exists
-      const existing = await SchoolQuarter.findOne({ year, quarter });
-      if (existing) {
-        return res.status(400).json({
-          success: false,
-          message: `${quarter} ${year} quarter already exists`
-        });
-      }
-
-      const newQuarter = new SchoolQuarter({
-        name,
-        year,
-        quarter,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        isActive: isActive || false,
-        createdBy: req.user._id
-      });
-
-      await newQuarter.save();
+      // Use QuarterService for business logic
+      const quarter = await quarterService.createQuarter(req.body, req.user._id);
 
       res.status(201).json({
         success: true,
         message: 'School quarter created successfully',
-        quarter: newQuarter
+        quarter
       });
     } catch (error) {
+      if (error instanceof QuarterValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Error creating quarter:', error);
       res.status(500).json({
         success: false,
@@ -232,32 +220,8 @@ router.put('/quarters/:id',
         });
       }
 
-      const quarter = await SchoolQuarter.findById(req.params.id);
-      if (!quarter) {
-        return res.status(404).json({
-          success: false,
-          message: 'School quarter not found'
-        });
-      }
-
-      const { name, year, quarter: quarterType, startDate, endDate, isActive } = req.body;
-
-      if (name) quarter.name = name;
-      if (year) quarter.year = year;
-      if (quarterType) quarter.quarter = quarterType;
-      if (startDate) quarter.startDate = new Date(startDate);
-      if (endDate) quarter.endDate = new Date(endDate);
-      if (typeof isActive === 'boolean') quarter.isActive = isActive;
-
-      // Validate end date is after start date
-      if (quarter.endDate <= quarter.startDate) {
-        return res.status(400).json({
-          success: false,
-          message: 'End date must be after start date'
-        });
-      }
-
-      await quarter.save();
+      // Use QuarterService for business logic
+      const quarter = await quarterService.updateQuarter(req.params.id, req.body);
 
       res.json({
         success: true,
@@ -265,6 +229,9 @@ router.put('/quarters/:id',
         quarter
       });
     } catch (error) {
+      if (error instanceof QuarterValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Error updating quarter:', error);
       res.status(500).json({
         success: false,
@@ -279,16 +246,8 @@ router.put('/quarters/:id',
 // @access  Admin only
 router.put('/quarters/:id/activate', isAuthenticated, requireAdmin, async (req, res) => {
   try {
-    const quarter = await SchoolQuarter.findById(req.params.id);
-    if (!quarter) {
-      return res.status(404).json({
-        success: false,
-        message: 'School quarter not found'
-      });
-    }
-
-    quarter.isActive = true;
-    await quarter.save(); // The pre-save hook will deactivate other quarters
+    // Use QuarterService for business logic
+    const quarter = await quarterService.activateQuarter(req.params.id);
 
     res.json({
       success: true,
@@ -296,6 +255,9 @@ router.put('/quarters/:id/activate', isAuthenticated, requireAdmin, async (req, 
       quarter
     });
   } catch (error) {
+    if (error instanceof QuarterValidationError) {
+      return handleServiceError(error, res);
+    }
     console.error('Error activating quarter:', error);
     res.status(500).json({
       success: false,
@@ -309,21 +271,17 @@ router.put('/quarters/:id/activate', isAuthenticated, requireAdmin, async (req, 
 // @access  Admin only
 router.delete('/quarters/:id', isAuthenticated, requireAdmin, async (req, res) => {
   try {
-    const quarter = await SchoolQuarter.findById(req.params.id);
-    if (!quarter) {
-      return res.status(404).json({
-        success: false,
-        message: 'School quarter not found'
-      });
-    }
-
-    await quarter.deleteOne();
+    // Use QuarterService for business logic
+    await quarterService.deleteQuarter(req.params.id);
 
     res.json({
       success: true,
       message: 'School quarter deleted successfully'
     });
   } catch (error) {
+    if (error instanceof QuarterValidationError) {
+      return handleServiceError(error, res);
+    }
     console.error('Error deleting quarter:', error);
     res.status(500).json({
       success: false,
