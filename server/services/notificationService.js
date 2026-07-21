@@ -11,11 +11,13 @@ const { getTemplate } = require('./notificationTemplates');
 
 /**
  * Email Sender - Single Responsibility: Email transport
+ * Uses cached transporter with connection pooling for efficiency
  * Dependency can be injected for testing
  */
 class EmailSender {
   constructor(transporterFactory = null) {
-    this.createTransporter = transporterFactory || this._defaultTransporterFactory;
+    this._transporterFactory = transporterFactory || this._defaultTransporterFactory.bind(this);
+    this._transporter = null; // Cached transporter
   }
 
   _defaultTransporterFactory() {
@@ -26,8 +28,37 @@ class EmailSender {
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASSWORD
-      }
+      },
+      // Connection pooling - reuse connections
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
+      // Timeouts
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000
     });
+  }
+
+  /**
+   * Get cached transporter or create new one
+   * Reuses SMTP connection pool for efficiency
+   */
+  _getTransporter() {
+    if (!this._transporter) {
+      this._transporter = this._transporterFactory();
+    }
+    return this._transporter;
+  }
+
+  /**
+   * Close transporter connection pool (for graceful shutdown)
+   */
+  close() {
+    if (this._transporter) {
+      this._transporter.close();
+      this._transporter = null;
+    }
   }
 
   async send(to, subject, html, text) {
@@ -37,7 +68,7 @@ class EmailSender {
       return { skipped: true };
     }
 
-    const transporter = this.createTransporter();
+    const transporter = this._getTransporter();
 
     const mailOptions = {
       from: process.env.EMAIL_FROM || 'Learning Navigator <noreply@learningnavigator.com>',
@@ -104,11 +135,19 @@ const createNotification = async ({
 /**
  * Send meeting notification using strategy pattern
  * Template is selected based on type, allowing extension without modification
+ * 
+ * OPTIMIZATION: Accepts pre-populated meeting objects to avoid duplicate DB lookups.
+ * If meeting.student/navigator are ObjectIds, will fetch (backwards compatible).
  */
 const sendMeetingNotification = async (meeting, type) => {
   try {
-    const student = await User.findById(meeting.student);
-    const navigator = await User.findById(meeting.navigator);
+    // Use populated data if available, otherwise fetch (backwards compatibility)
+    const student = meeting.student?.email 
+      ? meeting.student 
+      : await User.findById(meeting.student);
+    const navigator = meeting.navigator?.email 
+      ? meeting.navigator 
+      : await User.findById(meeting.navigator);
 
     if (!student || !navigator) {
       console.error('Could not find student or navigator for notification');
@@ -184,10 +223,15 @@ const sendMeetingNotification = async (meeting, type) => {
 
 /**
  * Send note shared notification using strategy pattern
+ * 
+ * OPTIMIZATION: Uses pre-populated note.navigator if available
  */
 const sendNoteSharedNotification = async (note, student) => {
   try {
-    const navigator = await User.findById(note.navigator);
+    // Use populated data if available, otherwise fetch
+    const navigator = note.navigator?.email 
+      ? note.navigator 
+      : await User.findById(note.navigator);
 
     if (!navigator) {
       console.error('Could not find navigator for notification');

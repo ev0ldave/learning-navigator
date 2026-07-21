@@ -1,32 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
-const WeeklyHours = require('../models/AvailableHours');
+const { availabilityRepository } = require('../repositories');
+const availabilityService = require('../services/availabilityService');
+const { AvailabilityValidationError } = require('../services/availabilityService');
 const { isAuthenticated, requireNavigator } = require('../middleware/auth');
-const { 
-  getPacificDayOfWeek, 
-  getPacificComponents, 
-  createPacificDate, 
-  getPacificStartOfDay, 
-  getPacificEndOfDay,
-  parseDateAsPacific
-} = require('../utils/timezone');
 
-// Helper to validate time format (HH:MM)
-const isValidTimeFormat = (time) => {
-  return /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time);
-};
-
-// Helper to validate slots array
-const validateSlots = (slots) => {
-  if (!Array.isArray(slots)) return false;
-  return slots.every(slot => 
-    slot.startTime && 
-    slot.endTime && 
-    isValidTimeFormat(slot.startTime) && 
-    isValidTimeFormat(slot.endTime) &&
-    slot.startTime < slot.endTime
-  );
+/**
+ * Error handler helper for AvailabilityValidationError
+ */
+const handleServiceError = (error, res) => {
+  if (error instanceof AvailabilityValidationError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message
+    });
+  }
+  console.error('Unexpected error:', error);
+  return res.status(500).json({ success: false, message: 'An error occurred' });
 };
 
 // @route   GET /api/availability
@@ -34,13 +25,7 @@ const validateSlots = (slots) => {
 // @access  Private/Navigator
 router.get('/', isAuthenticated, requireNavigator, async (req, res) => {
   try {
-    let weeklyHours = await WeeklyHours.findOne({ user: req.user._id });
-    
-    // Create default schedule if none exists
-    if (!weeklyHours) {
-      weeklyHours = new WeeklyHours({ user: req.user._id });
-      await weeklyHours.save();
-    }
+    const weeklyHours = await availabilityService.getOrCreateWeeklyHours(req.user._id);
     
     res.json({
       success: true,
@@ -60,26 +45,7 @@ router.get('/', isAuthenticated, requireNavigator, async (req, res) => {
 // @access  Private
 router.get('/user/:userId', isAuthenticated, async (req, res) => {
   try {
-    const { userId } = req.params;
-    
-    let weeklyHours = await WeeklyHours.findOne({ user: userId })
-      .populate('user', 'firstName lastName');
-    
-    // If no schedule exists, return empty availability
-    // Navigators must explicitly set their availability for students to book
-    if (!weeklyHours) {
-      weeklyHours = {
-        user: userId,
-        sunday: { enabled: false, slots: [] },
-        monday: { enabled: false, slots: [] },
-        tuesday: { enabled: false, slots: [] },
-        wednesday: { enabled: false, slots: [] },
-        thursday: { enabled: false, slots: [] },
-        friday: { enabled: false, slots: [] },
-        saturday: { enabled: false, slots: [] },
-        _notConfigured: true // Flag to indicate availability not set
-      };
-    }
+    const weeklyHours = await availabilityService.getWeeklyHoursForBooking(req.params.userId);
     
     res.json({
       success: true,
@@ -102,39 +68,8 @@ router.put('/',
   requireNavigator,
   async (req, res) => {
     try {
-      const { sunday, monday, tuesday, wednesday, thursday, friday, saturday, timezone } = req.body;
-      
-      // Validate each day's slots if provided
-      const days = { sunday, monday, tuesday, wednesday, thursday, friday, saturday };
-      for (const [dayName, dayData] of Object.entries(days)) {
-        if (dayData && dayData.enabled && dayData.slots) {
-          if (!validateSlots(dayData.slots)) {
-            return res.status(400).json({
-              success: false,
-              message: `Invalid time slots for ${dayName}. Times must be in HH:MM format and end time must be after start time.`
-            });
-          }
-        }
-      }
-      
-      // Find or create weekly hours
-      let weeklyHours = await WeeklyHours.findOne({ user: req.user._id });
-      
-      if (!weeklyHours) {
-        weeklyHours = new WeeklyHours({ user: req.user._id });
-      }
-      
-      // Update each day if provided
-      if (sunday !== undefined) weeklyHours.sunday = sunday;
-      if (monday !== undefined) weeklyHours.monday = monday;
-      if (tuesday !== undefined) weeklyHours.tuesday = tuesday;
-      if (wednesday !== undefined) weeklyHours.wednesday = wednesday;
-      if (thursday !== undefined) weeklyHours.thursday = thursday;
-      if (friday !== undefined) weeklyHours.friday = friday;
-      if (saturday !== undefined) weeklyHours.saturday = saturday;
-      if (timezone) weeklyHours.timezone = timezone;
-      
-      await weeklyHours.save();
+      // Use AvailabilityService for business logic
+      const weeklyHours = await availabilityService.updateWeeklyHours(req.user._id, req.body);
       
       res.json({
         success: true,
@@ -142,6 +77,9 @@ router.put('/',
         weeklyHours
       });
     } catch (error) {
+      if (error instanceof AvailabilityValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Update weekly hours error:', error);
       res.status(500).json({
         success: false,
@@ -166,92 +104,17 @@ router.get('/slots/:userId', isAuthenticated, async (req, res) => {
       });
     }
     
-    // Get the weekly hours for the user
-    const weeklyHours = await WeeklyHours.findOne({ user: userId });
-    
-    // If navigator hasn't set their availability, return empty slots
-    // Navigators must explicitly configure their availability for students to book
-    if (!weeklyHours) {
-      return res.json({
-        success: true,
-        slots: [],
-        message: 'Navigator has not set their availability yet'
-      });
-    }
-    
-    // Parse date as Pacific calendar date (handles both YYYY-MM-DD and ISO formats)
-    const { year, month, day, dayOfWeek } = parseDateAsPacific(date);
-    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const dayName = days[dayOfWeek];
-    const dayAvailability = weeklyHours[dayName];
-    
-    // If day is not enabled, return empty slots
-    if (!dayAvailability || !dayAvailability.enabled) {
-      return res.json({
-        success: true,
-        slots: [],
-        message: 'No availability on this day'
-      });
-    }
-    
-    // Get existing meetings for this date (use Pacific time boundaries)
-    const Meeting = require('../models/Meeting');
-    const startOfDay = createPacificDate(year, month, day, 0, 0, 0);
-    const endOfDay = createPacificDate(year, month, day, 23, 59, 59);
-    
-    const existingMeetings = await Meeting.find({
-      navigator: userId,
-      startTime: { $gte: startOfDay, $lte: endOfDay },
-      status: { $in: ['scheduled', 'confirmed'] }
-    });
-    
-    // Generate available slots
-    const slots = [];
-    const slotDuration = parseInt(duration);
-    
-    // Calculate minimum booking time - students must book 24 hours in advance
-    const now = new Date();
-    const minBookingTime = req.user.role === 'student' 
-      ? new Date(now.getTime() + 24 * 60 * 60 * 1000) 
-      : now;
-    
-    dayAvailability.slots.forEach(timeSlot => {
-      const [startHour, startMin] = timeSlot.startTime.split(':').map(Number);
-      const [endHour, endMin] = timeSlot.endTime.split(':').map(Number);
-      
-      // Create slot times in Pacific timezone
-      let current = createPacificDate(year, month, day, startHour, startMin, 0);
-      const slotEndTime = createPacificDate(year, month, day, endHour, endMin, 0);
-      
-      while (current < slotEndTime) {
-        const slotEnd = new Date(current.getTime() + slotDuration * 60 * 1000);
-        
-        if (slotEnd > slotEndTime) break;
-        
-        // Check for conflicts with existing meetings
-        const hasConflict = existingMeetings.some(meeting => {
-          const meetingStart = new Date(meeting.startTime);
-          const meetingEnd = new Date(meeting.endTime);
-          return current < meetingEnd && slotEnd > meetingStart;
-        });
-        
-        // Only add slots that are bookable and without conflicts
-        if (!hasConflict && current > minBookingTime) {
-          slots.push({
-            start: new Date(current),
-            end: new Date(slotEnd),
-            available: true
-          });
-        }
-        
-        current = new Date(current.getTime() + slotDuration * 60 * 1000);
-      }
-    });
+    // Use AvailabilityService for business logic
+    const result = await availabilityService.getAvailableSlots(
+      userId,
+      date,
+      duration,
+      req.user.role
+    );
     
     res.json({
       success: true,
-      slots,
-      dayAvailability
+      ...result
     });
   } catch (error) {
     console.error('Get availability slots error:', error);
@@ -284,55 +147,14 @@ router.post('/blocks/:dayName',
 
       const { dayName } = req.params;
       const { startTime, endTime } = req.body;
-      const validDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-      if (!validDays.includes(dayName.toLowerCase())) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid day name. Must be one of: sunday, monday, tuesday, wednesday, thursday, friday, saturday'
-        });
-      }
-
-      // Validate that end time is after start time
-      if (startTime >= endTime) {
-        return res.status(400).json({
-          success: false,
-          message: 'End time must be after start time'
-        });
-      }
-
-      // Find or create weekly hours
-      let weeklyHours = await WeeklyHours.findOne({ user: req.user._id });
-
-      if (!weeklyHours) {
-        weeklyHours = new WeeklyHours({ user: req.user._id });
-      }
-
-      const day = dayName.toLowerCase();
-      const dayData = weeklyHours[day];
-
-      // Check for overlapping slots
-      const hasOverlap = dayData.slots.some(slot => {
-        return (startTime < slot.endTime && endTime > slot.startTime);
-      });
-
-      if (hasOverlap) {
-        return res.status(400).json({
-          success: false,
-          message: 'The new time slot overlaps with an existing slot'
-        });
-      }
-
-      // Add the new slot
-      dayData.slots.push({ startTime, endTime });
-      
-      // Sort slots by start time
-      dayData.slots.sort((a, b) => a.startTime.localeCompare(b.startTime));
-      
-      // Enable the day if not already enabled
-      dayData.enabled = true;
-
-      await weeklyHours.save();
+      // Use AvailabilityService for business logic
+      const weeklyHours = await availabilityService.addBlock(
+        req.user._id,
+        dayName,
+        startTime,
+        endTime
+      );
 
       res.status(201).json({
         success: true,
@@ -340,6 +162,9 @@ router.post('/blocks/:dayName',
         weeklyHours
       });
     } catch (error) {
+      if (error instanceof AvailabilityValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Add availability block error:', error);
       res.status(500).json({
         success: false,
@@ -358,51 +183,13 @@ router.delete('/blocks/:dayName/:slotIndex',
   async (req, res) => {
     try {
       const { dayName, slotIndex } = req.params;
-      const validDays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-      if (!validDays.includes(dayName.toLowerCase())) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid day name'
-        });
-      }
-
-      const index = parseInt(slotIndex);
-      if (isNaN(index) || index < 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid slot index'
-        });
-      }
-
-      let weeklyHours = await WeeklyHours.findOne({ user: req.user._id });
-
-      if (!weeklyHours) {
-        return res.status(404).json({
-          success: false,
-          message: 'No availability schedule found'
-        });
-      }
-
-      const day = dayName.toLowerCase();
-      const dayData = weeklyHours[day];
-
-      if (index >= dayData.slots.length) {
-        return res.status(400).json({
-          success: false,
-          message: 'Slot index out of range'
-        });
-      }
-
-      // Remove the slot
-      dayData.slots.splice(index, 1);
-
-      // If no slots remain, disable the day
-      if (dayData.slots.length === 0) {
-        dayData.enabled = false;
-      }
-
-      await weeklyHours.save();
+      // Use AvailabilityService for business logic
+      const weeklyHours = await availabilityService.removeBlock(
+        req.user._id,
+        dayName,
+        slotIndex
+      );
 
       res.json({
         success: true,
@@ -410,6 +197,9 @@ router.delete('/blocks/:dayName/:slotIndex',
         weeklyHours
       });
     } catch (error) {
+      if (error instanceof AvailabilityValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Remove availability block error:', error);
       res.status(500).json({
         success: false,

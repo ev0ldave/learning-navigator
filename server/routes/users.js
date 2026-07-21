@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { body, validationResult, param } = require('express-validator');
-const User = require('../models/User');
-const Meeting = require('../models/Meeting');
-const { updateCalendarEvent } = require('../services/calendarService');
+const { userRepository } = require('../repositories');
+const userService = require('../services/userService');
+const { UserValidationError } = require('../services/userService');
 const { 
   isAuthenticated, 
   requireAdmin, 
@@ -14,6 +14,20 @@ const {
 
 // Validate ObjectId params
 router.param('id', validateObjectId('id'));
+
+/**
+ * Error handler helper for UserValidationError
+ */
+const handleServiceError = (error, res) => {
+  if (error instanceof UserValidationError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message
+    });
+  }
+  console.error('Unexpected error:', error);
+  return res.status(500).json({ success: false, message: 'An error occurred' });
+};
 
 // @route   GET /api/users
 // @desc    Get all users (admin only)
@@ -35,12 +49,13 @@ router.get('/', isAuthenticated, requireAdmin, async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const [users, total] = await Promise.all([
-      User.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .populate('assignedNavigator', 'firstName lastName email'),
-      User.countDocuments(query)
+      userRepository.find(query, {
+        sort: { createdAt: -1 },
+        skip,
+        limit: parseInt(limit),
+        populate: [{ path: 'assignedNavigator', select: 'firstName lastName email' }]
+      }),
+      userRepository.count(query)
     ]);
     
     res.json({
@@ -67,10 +82,7 @@ router.get('/', isAuthenticated, requireAdmin, async (req, res) => {
 // @access  Private
 router.get('/navigators', isAuthenticated, async (req, res) => {
   try {
-    const navigators = await User.find({ 
-      role: { $in: ['learning_navigator', 'administrator'] },
-      isActive: true
-    }).select('firstName lastName email profilePicture availability zoomLink');
+    const navigators = await userRepository.findAllNavigators(true);
     
     res.json({
       success: true,
@@ -112,12 +124,13 @@ router.get('/students', isAuthenticated, requireNavigator, async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const [students, total] = await Promise.all([
-      User.find(query)
-        .sort({ lastName: 1, firstName: 1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .populate('assignedNavigator', 'firstName lastName email'),
-      User.countDocuments(query)
+      userRepository.find(query, {
+        sort: { lastName: 1, firstName: 1 },
+        skip,
+        limit: parseInt(limit),
+        populate: [{ path: 'assignedNavigator', select: 'firstName lastName email' }]
+      }),
+      userRepository.count(query)
     ]);
     
     res.json({
@@ -146,17 +159,9 @@ router.get('/my-students', isAuthenticated, requireNavigator, async (req, res) =
   try {
     console.log('my-students called by user:', req.user?.email, 'role:', req.user?.role);
     
-    const query = {
-      role: 'student',
-      isActive: true
-    };
-    
-    // Both admins and navigators can see all students
-    // This allows creating notes for any student
-    
-    const students = await User.find(query)
-      .select('firstName lastName email profilePicture phone')
-      .sort({ lastName: 1, firstName: 1 });
+    const students = await userRepository.findAllStudents({
+      select: 'firstName lastName email profilePicture phone'
+    });
     
     console.log('Found students:', students.length);
     
@@ -178,9 +183,12 @@ router.get('/my-students', isAuthenticated, requireNavigator, async (req, res) =
 // @access  Private
 router.get('/:id', isAuthenticated, async (req, res) => {
   try {
-    const user = await User.findById(req.params.id)
-      .populate('assignedNavigator', 'firstName lastName email profilePicture')
-      .populate('students', 'firstName lastName email profilePicture');
+    const user = await userRepository.findById(req.params.id, {
+      populate: [
+        { path: 'assignedNavigator', select: 'firstName lastName email profilePicture' },
+        { path: 'students', select: 'firstName lastName email profilePicture' }
+      ]
+    });
     
     if (!user) {
       return res.status(404).json({
@@ -189,15 +197,8 @@ router.get('/:id', isAuthenticated, async (req, res) => {
       });
     }
     
-    // Check access permissions
-    // Note: assignedNavigator is populated, so we need to check _id
-    const assignedNavigatorId = user.assignedNavigator?._id || user.assignedNavigator;
-    const canAccess = 
-      req.user.role === 'administrator' ||
-      req.user._id.toString() === user._id.toString() ||
-      (req.user.role === 'learning_navigator' && assignedNavigatorId?.toString() === req.user._id.toString());
-    
-    if (!canAccess) {
+    // Check access using service
+    if (!userService.hasViewAccess(user, req.user)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -239,113 +240,12 @@ router.put('/:id',
         });
       }
       
-      // Check permissions
-      const canUpdate = 
-        req.user.role === 'administrator' ||
-        req.user._id.toString() === req.params.id;
-      
-      if (!canUpdate) {
-        return res.status(403).json({
-          success: false,
-          message: 'You can only update your own profile'
-        });
-      }
-      
-      const { firstName, lastName, phone, bio, profilePicture, notificationPreferences, zoomLink } = req.body;
-      
-      const updateData = {};
-      if (firstName) updateData.firstName = firstName;
-      if (lastName) updateData.lastName = lastName;
-      if (phone !== undefined) {
-        updateData.phone = phone;
-        // Mark phone prompt as shown when user provides a phone number
-        if (phone && phone.trim()) {
-          updateData.phonePromptShown = true;
-        }
-      }
-      if (bio !== undefined) updateData.bio = bio;
-      if (profilePicture !== undefined) updateData.profilePicture = profilePicture;
-      
-      // Only allow navigators/admins to set zoom link
-      let zoomLinkChanged = false;
-      let oldZoomLink = null;
-      if (zoomLink !== undefined) {
-        const targetUser = await User.findById(req.params.id);
-        if (targetUser && (targetUser.role === 'learning_navigator' || targetUser.role === 'administrator')) {
-          const newZoomLink = zoomLink || null;
-          if (targetUser.zoomLink !== newZoomLink) {
-            zoomLinkChanged = true;
-            oldZoomLink = targetUser.zoomLink;
-          }
-          updateData.zoomLink = newZoomLink;
-        }
-      }
-      
-      if (notificationPreferences) {
-        // Automatically disable smsReminders if no phone number
-        if (notificationPreferences.smsReminders && !phone) {
-          // Check if phone is being cleared or if user already has no phone
-          const existingUser = await User.findById(req.params.id);
-          const hasPhone = phone !== '' && (phone || existingUser?.phone);
-          if (!hasPhone) {
-            notificationPreferences.smsReminders = false;
-          }
-        }
-        updateData.notificationPreferences = notificationPreferences;
-      }
-      
-      // If phone is being cleared, also disable smsReminders
-      if (phone === '' || phone === null) {
-        updateData['notificationPreferences.smsReminders'] = false;
-      }
-      
-      const user = await User.findByIdAndUpdate(
+      // Use UserService for business logic
+      const { user, meetingsUpdated } = await userService.updateProfile(
         req.params.id,
-        updateData,
-        { new: true, runValidators: true }
+        req.body,
+        req.user
       );
-      
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
-      
-      // If zoom link changed, update all future virtual meetings for this navigator
-      let meetingsUpdated = 0;
-      if (zoomLinkChanged && user.zoomLink) {
-        try {
-          const now = new Date();
-          const futureMeetings = await Meeting.find({
-            navigator: user._id,
-            startTime: { $gt: now },
-            status: { $in: ['scheduled', 'confirmed'] },
-            location: 'virtual'
-          }).populate('student navigator');
-          
-          for (const meeting of futureMeetings) {
-            meeting.meetingLink = user.zoomLink;
-            await meeting.save();
-            
-            // Update Google Calendar event
-            try {
-              await updateCalendarEvent(meeting);
-            } catch (calError) {
-              console.warn(`Failed to update calendar for meeting ${meeting._id}:`, calError.message);
-            }
-            
-            meetingsUpdated++;
-          }
-          
-          if (meetingsUpdated > 0) {
-            console.log(`Updated ${meetingsUpdated} meetings with new zoom link for ${user.email}`);
-          }
-        } catch (meetingError) {
-          console.error('Error updating meetings with new zoom link:', meetingError);
-          // Don't fail the profile update if meeting sync fails
-        }
-      }
       
       res.json({
         success: true,
@@ -356,6 +256,9 @@ router.put('/:id',
         meetingsUpdated
       });
     } catch (error) {
+      if (error instanceof UserValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Update user error:', error);
       res.status(500).json({
         success: false,
@@ -384,18 +287,8 @@ router.put('/:id/role',
         });
       }
       
-      const user = await User.findByIdAndUpdate(
-        req.params.id,
-        { role: req.body.role },
-        { new: true }
-      );
-      
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
+      // Use UserService for business logic
+      const user = await userService.updateRole(req.params.id, req.body.role);
       
       res.json({
         success: true,
@@ -403,6 +296,9 @@ router.put('/:id/role',
         user
       });
     } catch (error) {
+      if (error instanceof UserValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Update role error:', error);
       res.status(500).json({
         success: false,
@@ -431,39 +327,11 @@ router.put('/:id/assign-navigator',
         });
       }
       
-      const { navigatorId } = req.body;
+      // Use UserService for business logic
+      const student = await userService.assignNavigator(req.params.id, req.body.navigatorId);
       
-      // Verify navigator exists and is a navigator
-      const navigator = await User.findOne({
-        _id: navigatorId,
-        role: { $in: ['learning_navigator', 'administrator'] }
-      });
-      
-      if (!navigator) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid navigator'
-        });
-      }
-      
-      // Update student
-      const student = await User.findByIdAndUpdate(
-        req.params.id,
-        { assignedNavigator: navigatorId },
-        { new: true }
-      ).populate('assignedNavigator', 'firstName lastName email');
-      
-      if (!student) {
-        return res.status(404).json({
-          success: false,
-          message: 'Student not found'
-        });
-      }
-      
-      // Add student to navigator's list
-      await User.findByIdAndUpdate(navigatorId, {
-        $addToSet: { students: student._id }
-      });
+      // Populate for response
+      await student.populate('assignedNavigator', 'firstName lastName email');
       
       res.json({
         success: true,
@@ -471,6 +339,9 @@ router.put('/:id/assign-navigator',
         student
       });
     } catch (error) {
+      if (error instanceof UserValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Assign navigator error:', error);
       res.status(500).json({
         success: false,
@@ -498,11 +369,7 @@ router.put('/:id/availability',
       
       const { availability } = req.body;
       
-      const user = await User.findByIdAndUpdate(
-        req.params.id,
-        { availability },
-        { new: true }
-      );
+      const user = await userRepository.updateById(req.params.id, { availability });
       
       if (!user) {
         return res.status(404).json({
@@ -531,24 +398,17 @@ router.put('/:id/availability',
 // @access  Private/Admin
 router.delete('/:id', isAuthenticated, requireAdmin, async (req, res) => {
   try {
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { isActive: false },
-      { new: true }
-    );
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
+    // Use UserService for business logic
+    await userService.deactivateUser(req.params.id);
     
     res.json({
       success: true,
       message: 'User deactivated successfully'
     });
   } catch (error) {
+    if (error instanceof UserValidationError) {
+      return handleServiceError(error, res);
+    }
     console.error('Delete user error:', error);
     res.status(500).json({
       success: false,
@@ -576,35 +436,22 @@ router.put('/:id/status',
         });
       }
 
-      const { isActive } = req.body;
-      
-      // Prevent admin from disabling their own account
-      if (req.params.id === req.user._id.toString() && !isActive) {
-        return res.status(400).json({
-          success: false,
-          message: 'You cannot disable your own account'
-        });
-      }
-
-      const user = await User.findByIdAndUpdate(
+      // Use UserService for business logic
+      const user = await userService.updateStatus(
         req.params.id,
-        { isActive },
-        { new: true }
+        req.body.isActive,
+        req.user._id
       );
-
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
 
       res.json({
         success: true,
-        message: `User account ${isActive ? 'enabled' : 'disabled'} successfully`,
+        message: `User account ${req.body.isActive ? 'enabled' : 'disabled'} successfully`,
         user
       });
     } catch (error) {
+      if (error instanceof UserValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Update user status error:', error);
       res.status(500).json({
         success: false,

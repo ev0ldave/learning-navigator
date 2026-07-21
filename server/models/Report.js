@@ -43,15 +43,8 @@ const reportSchema = new mongoose.Schema({
   },
   // Report data
   data: {
-    // Summary statistics
-    summary: {
-      totalSessions: Number,
-      completedSessions: Number,
-      cancelledSessions: Number,
-      noShowSessions: Number,
-      totalDuration: Number, // in minutes
-      averageSessionDuration: Number
-    },
+    // Summary statistics - Mixed to allow flexible metrics
+    summary: mongoose.Schema.Types.Mixed,
     // Session details
     sessions: [{
       meeting: {
@@ -61,12 +54,14 @@ const reportSchema = new mongoose.Schema({
       date: Date,
       duration: Number,
       status: String,
+      location: String,
       notes: String,
       studentName: String,
       studentId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
-      }
+      },
+      navigatorName: String
     }],
     // Progress metrics
     progress: {
@@ -79,7 +74,11 @@ const reportSchema = new mongoose.Schema({
       improvements: [String],
       areasForGrowth: [String]
     },
-    // Custom data
+    // Grouped data for multi-dimensional reports
+    grouped: mongoose.Schema.Types.Mixed,
+    // Report configuration (metrics, groupBy, filters used)
+    config: mongoose.Schema.Types.Mixed,
+    // Custom data (legacy support)
     customFields: mongoose.Schema.Types.Mixed
   },
   // Export tracking
@@ -174,45 +173,88 @@ reportSchema.methods.shareWith = async function(userId, accessLevel = 'view') {
 };
 
 // Static method to generate individual report
+// OPTIMIZATION: Uses aggregation pipeline for efficient statistics computation in database
 reportSchema.statics.generateIndividualReport = async function(navigatorId, studentId, startDate, endDate) {
   const Meeting = mongoose.model('Meeting');
   const Note = mongoose.model('Note');
   
-  const meetings = await Meeting.find({
-    navigator: navigatorId,
-    student: studentId,
-    startTime: { $gte: startDate, $lte: endDate }
-  }).sort({ startTime: 1 });
+  // Single aggregation for meeting stats - more efficient than fetch + JS processing
+  const [meetingStats] = await Meeting.aggregate([
+    {
+      $match: {
+        navigator: new mongoose.Types.ObjectId(navigatorId),
+        student: new mongoose.Types.ObjectId(studentId),
+        startTime: { $gte: new Date(startDate), $lte: new Date(endDate) }
+      }
+    },
+    {
+      $facet: {
+        // Summary statistics
+        summary: [
+          {
+            $group: {
+              _id: null,
+              totalSessions: { $sum: 1 },
+              totalDuration: { $sum: { $ifNull: ['$duration', 0] } },
+              completedSessions: {
+                $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+              },
+              cancelledSessions: {
+                $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] }
+              },
+              noShowSessions: {
+                $sum: { $cond: [{ $eq: ['$status', 'no_show'] }, 1, 0] }
+              }
+            }
+          }
+        ],
+        // Session details (sorted)
+        sessions: [
+          { $sort: { startTime: 1 } },
+          {
+            $project: {
+              meeting: '$_id',
+              date: '$startTime',
+              duration: 1,
+              status: 1
+            }
+          }
+        ]
+      }
+    }
+  ]);
   
-  const notes = await Note.find({
-    navigator: navigatorId,
-    student: studentId,
-    createdAt: { $gte: startDate, $lte: endDate }
-  }).sort({ createdAt: -1 });
+  // Extract results with defaults for empty result sets
+  const summary = meetingStats?.summary[0] || {
+    totalSessions: 0,
+    totalDuration: 0,
+    completedSessions: 0,
+    cancelledSessions: 0,
+    noShowSessions: 0
+  };
   
-  const totalSessions = meetings.length;
-  const completedSessions = meetings.filter(m => m.status === 'completed').length;
-  const cancelledSessions = meetings.filter(m => m.status === 'cancelled').length;
-  const noShowSessions = meetings.filter(m => m.status === 'no_show').length;
-  const totalDuration = meetings.reduce((sum, m) => sum + (m.duration || 0), 0);
+  const sessions = meetingStats?.sessions || [];
+  
+  // Calculate derived fields
+  const averageSessionDuration = summary.totalSessions > 0 
+    ? Math.round(summary.totalDuration / summary.totalSessions) 
+    : 0;
+  const attendanceRate = summary.totalSessions > 0 
+    ? Math.round((summary.completedSessions / summary.totalSessions) * 100) 
+    : 0;
   
   return {
     summary: {
-      totalSessions,
-      completedSessions,
-      cancelledSessions,
-      noShowSessions,
-      totalDuration,
-      averageSessionDuration: totalSessions > 0 ? Math.round(totalDuration / totalSessions) : 0
+      totalSessions: summary.totalSessions,
+      completedSessions: summary.completedSessions,
+      cancelledSessions: summary.cancelledSessions,
+      noShowSessions: summary.noShowSessions,
+      totalDuration: summary.totalDuration,
+      averageSessionDuration
     },
-    sessions: meetings.map(m => ({
-      meeting: m._id,
-      date: m.startTime,
-      duration: m.duration,
-      status: m.status
-    })),
+    sessions,
     progress: {
-      attendanceRate: totalSessions > 0 ? Math.round((completedSessions / totalSessions) * 100) : 0
+      attendanceRate
     }
   };
 };

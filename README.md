@@ -16,7 +16,7 @@ A comprehensive student-learning navigator scheduling and management application
 - **Calendar Integration**: Google Calendar sync for automatic event management
 - **Availability Management**: Set weekly availability hours for booking slots
 - **Notes System**: Private and shared notes with email delivery to students
-- **Reports**: Individual and group progress reports with PDF export (multi-student selection supported)
+- **Reports**: Multi-dimensional reports with configurable metrics, grouping, and filters. In-app viewer with PDF/Excel export
 - **Notifications**: Email and in-app notifications for meeting updates
 - **Profile Management**: User profiles with notification preferences
 
@@ -158,9 +158,11 @@ See `infrastructure/README.md` for detailed deployment instructions.
 
 ### Reports
 - `GET /api/reports` - Get reports
-- `POST /api/reports/individual` - Generate individual report
-- `POST /api/reports/group` - Generate group report
-- `GET /api/reports/:id/export/:format` - Export report (pdf, json)
+- `GET /api/reports/config/options` - Get available metrics, groupBy, and filter options
+- `POST /api/reports/individual` - Generate individual student report
+- `POST /api/reports/group` - Generate group report (multi-student)
+- `POST /api/reports/custom` - Generate custom report with selected metrics/grouping
+- `GET /api/reports/:id/export/:format` - Export report (pdf, xlsx, json)
 - `DELETE /api/reports/:id` - Delete report
 
 ### Notifications

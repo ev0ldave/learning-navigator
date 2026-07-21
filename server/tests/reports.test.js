@@ -564,4 +564,288 @@ describe('Reports Routes', () => {
       expect(updated.exports[0].format).toBe('pdf');
     });
   });
+
+  describe('GET /api/reports/config/options', () => {
+    it('should return report configuration options', async () => {
+      const res = await request(app)
+        .get('/api/reports/config/options')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.options).toBeDefined();
+      expect(res.body.options.metrics).toBeDefined();
+      expect(Array.isArray(res.body.options.metrics)).toBe(true);
+      expect(res.body.options.groupBy).toBeDefined();
+      expect(res.body.options.filters).toBeDefined();
+    });
+
+    it('should include all metric categories', async () => {
+      const res = await request(app)
+        .get('/api/reports/config/options')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200);
+
+      const categories = [...new Set(res.body.options.metrics.map(m => m.category))];
+      expect(categories).toContain('sessions');
+      expect(categories).toContain('performance');
+      expect(categories).toContain('time');
+    });
+
+    it('should reject student access', async () => {
+      const res = await request(app)
+        .get('/api/reports/config/options')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .expect(403);
+
+      expect(res.body.success).toBe(false);
+    });
+  });
+
+  describe('POST /api/reports/custom', () => {
+    it('should generate custom report with selected metrics', async () => {
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 2);
+
+      const res = await request(app)
+        .post('/api/reports/custom')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .send({
+          studentIds: [student._id.toString()],
+          startDate: startDate.toISOString(),
+          endDate: new Date().toISOString(),
+          metrics: ['totalSessions', 'completedSessions', 'attendanceRate'],
+          groupBy: 'none',
+          includeDetails: false
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.report.data.summary).toBeDefined();
+      expect(res.body.report.data.summary.totalSessions).toBeDefined();
+      expect(res.body.report.data.summary.completedSessions).toBeDefined();
+      expect(res.body.report.data.summary.attendanceRate).toBeDefined();
+      expect(res.body.report.data.config.metrics).toContain('totalSessions');
+    });
+
+    it('should generate custom report with grouping', async () => {
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 2);
+
+      const res = await request(app)
+        .post('/api/reports/custom')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .send({
+          studentIds: [student._id.toString()],
+          startDate: startDate.toISOString(),
+          endDate: new Date().toISOString(),
+          metrics: ['totalSessions', 'completedSessions'],
+          groupBy: 'status',
+          includeDetails: false
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.report.data.grouped).toBeDefined();
+      expect(Array.isArray(res.body.report.data.grouped)).toBe(true);
+    });
+
+    it('should include session details when requested', async () => {
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 2);
+
+      const res = await request(app)
+        .post('/api/reports/custom')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .send({
+          studentIds: [student._id.toString()],
+          startDate: startDate.toISOString(),
+          endDate: new Date().toISOString(),
+          metrics: ['totalSessions'],
+          includeDetails: true
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.report.data.sessions).toBeDefined();
+      expect(Array.isArray(res.body.report.data.sessions)).toBe(true);
+    });
+
+    it('should apply status filter', async () => {
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 2);
+
+      const res = await request(app)
+        .post('/api/reports/custom')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .send({
+          studentIds: [student._id.toString()],
+          startDate: startDate.toISOString(),
+          endDate: new Date().toISOString(),
+          metrics: ['totalSessions', 'completedSessions'],
+          filters: { status: ['completed'] }
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      // All sessions should be completed when filtered
+      expect(res.body.report.data.summary.totalSessions).toBe(
+        res.body.report.data.summary.completedSessions
+      );
+    });
+
+    it('should auto-generate title when not provided', async () => {
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 2);
+
+      const res = await request(app)
+        .post('/api/reports/custom')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .send({
+          studentIds: [student._id.toString()],
+          startDate: startDate.toISOString(),
+          endDate: new Date().toISOString(),
+          metrics: ['totalSessions']
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.report.title).toBeDefined();
+      expect(res.body.report.title.length).toBeGreaterThan(0);
+    });
+
+    it('should use custom title when provided', async () => {
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 2);
+
+      const res = await request(app)
+        .post('/api/reports/custom')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .send({
+          title: 'My Custom Report',
+          studentIds: [student._id.toString()],
+          startDate: startDate.toISOString(),
+          endDate: new Date().toISOString(),
+          metrics: ['totalSessions']
+        })
+        .expect(201);
+
+      expect(res.body.report.title).toBe('My Custom Report');
+    });
+
+    it('should reject without metrics', async () => {
+      const res = await request(app)
+        .post('/api/reports/custom')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .send({
+          studentIds: [student._id.toString()],
+          startDate: new Date().toISOString(),
+          endDate: new Date().toISOString(),
+          metrics: []
+        })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should reject student access', async () => {
+      const res = await request(app)
+        .post('/api/reports/custom')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          startDate: new Date().toISOString(),
+          endDate: new Date().toISOString(),
+          metrics: ['totalSessions']
+        })
+        .expect(403);
+
+      expect(res.body.success).toBe(false);
+    });
+  });
+
+  describe('GET /api/reports/:id/export/:format', () => {
+    let report;
+
+    beforeEach(async () => {
+      report = await Report.create({
+        generatedBy: navigator._id,
+        type: 'individual_progress',
+        title: 'Export Test Report',
+        scope: {
+          student: student._id,
+          startDate: new Date(),
+          endDate: new Date()
+        },
+        data: {
+          summary: {
+            totalSessions: 5,
+            completedSessions: 3,
+            attendanceRate: 60
+          },
+          sessions: [
+            {
+              date: new Date(),
+              studentName: 'Test Student',
+              status: 'completed',
+              duration: 30,
+              location: 'virtual'
+            }
+          ]
+        }
+      });
+    });
+
+    it('should export report as Excel', async () => {
+      const res = await request(app)
+        .get(`/api/reports/${report._id}/export/xlsx`)
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .responseType('blob')
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      expect(res.headers['content-disposition']).toContain('.xlsx');
+      // Excel files are binary, verify buffer has content
+      expect(Buffer.isBuffer(res.body)).toBe(true);
+      expect(res.body.length).toBeGreaterThan(0);
+    });
+
+    it('should export report as JSON', async () => {
+      const res = await request(app)
+        .get(`/api/reports/${report._id}/export/json`)
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain('application/json');
+      expect(res.body.title).toBe('Export Test Report');
+    });
+
+    it('should reject invalid export format', async () => {
+      const res = await request(app)
+        .get(`/api/reports/${report._id}/export/invalid`)
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toContain('Invalid export format');
+    });
+
+    it('should reject export for non-existent report', async () => {
+      const fakeId = new mongoose.Types.ObjectId();
+      const res = await request(app)
+        .get(`/api/reports/${fakeId}/export/xlsx`)
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(404);
+
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should allow admin to export any report', async () => {
+      const res = await request(app)
+        .get(`/api/reports/${report._id}/export/xlsx`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    });
+  });
 });

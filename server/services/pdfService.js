@@ -1,6 +1,17 @@
 const PDFDocument = require('pdfkit');
 
 /**
+ * Format metric key to readable label
+ */
+const formatLabel = (key) => {
+  return key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/^./, str => str.toUpperCase())
+    .trim();
+};
+
+/**
  * Generate a professional PDF report
  * @param {Object} report - The report data from database
  * @returns {Promise<Buffer>} - PDF as buffer
@@ -10,6 +21,7 @@ const generateReportPDF = async (report) => {
     try {
       const doc = new PDFDocument({
         size: 'LETTER',
+        layout: 'landscape',
         margins: { top: 50, bottom: 50, left: 50, right: 50 },
         bufferPages: true,
         autoFirstPage: false,
@@ -105,32 +117,104 @@ const generateReportPDF = async (report) => {
       doc.text(`From: ${startDate}  To: ${endDate}`);
 
       // Summary Statistics
-      if (report.data?.summary) {
+      if (report.data?.summary && Object.keys(report.data.summary).length > 0) {
         doc.moveDown(1.5);
-        drawSectionHeader(doc, 'Summary Statistics', primaryColor);
+        drawSectionHeader(doc, 'Summary', primaryColor);
         
         doc.moveDown(0.5);
         const summary = report.data.summary;
         
-        // Draw stats in a grid-like layout
-        const statsY = doc.y;
-        const colWidth = 150;
+        // Get all non-object metrics for grid layout
+        const metricEntries = Object.entries(summary).filter(
+          ([, value]) => typeof value !== 'object'
+        );
         
-        drawStatBox(doc, 50, statsY, 'Total Sessions', summary.totalSessions || 0, primaryColor);
-        drawStatBox(doc, 50 + colWidth, statsY, 'Completed', summary.completedSessions || 0, accentColor);
-        drawStatBox(doc, 50 + colWidth * 2, statsY, 'Cancelled', summary.cancelledSessions || 0, '#f44336');
+        // Draw metrics in a 4-column grid (landscape has more width)
+        const colWidth = 165;
+        let statsY = doc.y;
+        let col = 0;
         
-        doc.y = statsY + 60;
+        metricEntries.forEach(([key, value], index) => {
+          const label = formatLabel(key);
+          const displayValue = key.toLowerCase().includes('rate') ? `${value}%` : String(value);
+          const color = key.toLowerCase().includes('completed') ? accentColor :
+                       key.toLowerCase().includes('cancelled') ? '#f44336' :
+                       key.toLowerCase().includes('noshow') || key.toLowerCase().includes('no_show') ? '#ff9800' :
+                       primaryColor;
+          
+          drawStatBox(doc, 50 + col * colWidth, statsY, label, displayValue, color);
+          col++;
+          
+          if (col >= 4) {
+            col = 0;
+            statsY += 60;
+          }
+        });
         
-        drawStatBox(doc, 50, doc.y, 'No Shows', summary.noShowSessions || 0, '#ff9800');
-        drawStatBox(doc, 50 + colWidth, doc.y, 'Total Minutes', summary.totalDuration || 0, primaryColor);
-        drawStatBox(doc, 50 + colWidth * 2, doc.y, 'Avg Duration', `${summary.averageSessionDuration || 0} min`, primaryColor);
+        // Move past the last row
+        doc.y = statsY + (col > 0 ? 70 : 10);
         
-        doc.y += 70;
+        // Handle breakdown arrays in summary
+        const breakdownEntries = Object.entries(summary).filter(
+          ([, value]) => Array.isArray(value) && value.length > 0 && value[0]?.label !== undefined
+        );
+        
+        for (const [key, items] of breakdownEntries) {
+          // Check if we need a new page
+          if (doc.y > 450) {
+            doc.addPage();
+            doc.y = 50;
+          }
+          
+          doc.moveDown(0.5);
+          doc.fontSize(11)
+             .font('Helvetica-Bold')
+             .fillColor(secondaryColor)
+             .text(formatLabel(key));
+          
+          doc.moveDown(0.3);
+          
+          // Table header
+          const tableLeft = 50;
+          const tableWidth = 400;
+          doc.rect(tableLeft, doc.y, tableWidth, 18).fill(lightGray);
+          
+          doc.fontSize(9)
+             .font('Helvetica-Bold')
+             .fillColor(secondaryColor);
+          doc.text('Category', tableLeft + 5, doc.y + 4);
+          doc.text('Count', tableLeft + 200, doc.y + 4);
+          doc.text('%', tableLeft + 300, doc.y + 4);
+          
+          let rowY = doc.y + 22;
+          
+          items.forEach((item, idx) => {
+            if (rowY > 520) {
+              doc.addPage();
+              rowY = 50;
+            }
+            
+            if (idx % 2 === 0) {
+              doc.rect(tableLeft, rowY - 2, tableWidth, 16).fill('#fafafa');
+            }
+            
+            doc.fontSize(9)
+               .font('Helvetica')
+               .fillColor(secondaryColor);
+            
+            doc.text(item.label || 'N/A', tableLeft + 5, rowY);
+            doc.text(String(item.count || 0), tableLeft + 200, rowY);
+            doc.text(item.percentage ? `${item.percentage}%` : '', tableLeft + 300, rowY);
+            
+            rowY += 18;
+          });
+          
+          doc.y = rowY + 10;
+        }
       }
 
-      // Progress Metrics
-      if (report.data?.progress) {
+      // Progress Metrics (visual attendance bar)
+      if (report.data?.progress?.attendanceRate !== undefined) {
         doc.moveDown(1);
         drawSectionHeader(doc, 'Progress Metrics', primaryColor);
         
@@ -138,287 +222,222 @@ const generateReportPDF = async (report) => {
         const progress = report.data.progress;
         
         // Attendance Rate with visual bar
-        if (progress.attendanceRate !== undefined) {
-          doc.fontSize(11)
-             .font('Helvetica-Bold')
-             .fillColor(secondaryColor)
-             .text('Attendance Rate:', { continued: true })
-             .font('Helvetica')
-             .text(` ${progress.attendanceRate.toFixed(1)}%`);
-          
-          // Progress bar
-          const barWidth = 200;
-          const barHeight = 10;
-          const barX = 50;
-          const barY = doc.y + 5;
-          
-          // Background
-          doc.rect(barX, barY, barWidth, barHeight)
-             .fill('#e0e0e0');
-          
-          // Fill
-          const fillWidth = (progress.attendanceRate / 100) * barWidth;
-          const barColor = progress.attendanceRate >= 80 ? accentColor : 
-                          progress.attendanceRate >= 60 ? '#ff9800' : '#f44336';
-          doc.rect(barX, barY, fillWidth, barHeight)
-             .fill(barColor);
-          
-          doc.y = barY + 25;
-        }
-
-        // Goals
-        if (progress.goals && progress.goals.length > 0) {
-          doc.moveDown(0.5);
-          doc.fontSize(11)
-             .font('Helvetica-Bold')
-             .fillColor(secondaryColor)
-             .text('Goals:');
-          
-          progress.goals.forEach((goal, index) => {
-            const statusIcon = goal.status === 'completed' ? '✓' : 
-                              goal.status === 'in_progress' ? '→' : '○';
-            const statusColor = goal.status === 'completed' ? accentColor : 
-                               goal.status === 'in_progress' ? '#ff9800' : '#9e9e9e';
-            
-            doc.fontSize(10)
-               .font('Helvetica')
-               .fillColor(statusColor)
-               .text(`  ${statusIcon} `, { continued: true })
-               .fillColor(secondaryColor)
-               .text(`${goal.description || 'Unnamed goal'}`);
-            
-            if (goal.notes) {
-              doc.fontSize(9)
-                 .fillColor('#757575')
-                 .text(`      ${goal.notes}`);
-            }
-          });
-        }
-
-        // Improvements
-        if (progress.improvements && progress.improvements.length > 0) {
-          doc.moveDown(0.5);
-          doc.fontSize(11)
-             .font('Helvetica-Bold')
-             .fillColor(secondaryColor)
-             .text('Areas of Improvement:');
-          
-          progress.improvements.forEach(improvement => {
-            doc.fontSize(10)
-               .font('Helvetica')
-               .fillColor(accentColor)
-               .text('  • ', { continued: true })
-               .fillColor(secondaryColor)
-               .text(improvement);
-          });
-        }
-
-        // Areas for Growth
-        if (progress.areasForGrowth && progress.areasForGrowth.length > 0) {
-          doc.moveDown(0.5);
-          doc.fontSize(11)
-             .font('Helvetica-Bold')
-             .fillColor(secondaryColor)
-             .text('Areas for Growth:');
-          
-          progress.areasForGrowth.forEach(area => {
-            doc.fontSize(10)
-               .font('Helvetica')
-               .fillColor('#ff9800')
-               .text('  • ', { continued: true })
-               .fillColor(secondaryColor)
-               .text(area);
-          });
-        }
+        doc.fontSize(11)
+           .font('Helvetica-Bold')
+           .fillColor(secondaryColor)
+           .text('Attendance Rate:', { continued: true })
+           .font('Helvetica')
+           .text(` ${progress.attendanceRate.toFixed(1)}%`);
+        
+        // Progress bar
+        const barWidth = 200;
+        const barHeight = 10;
+        const barX = 50;
+        const barY = doc.y + 5;
+        
+        // Background
+        doc.rect(barX, barY, barWidth, barHeight)
+           .fill('#e0e0e0');
+        
+        // Fill
+        const fillWidth = (progress.attendanceRate / 100) * barWidth;
+        const barColor = progress.attendanceRate >= 80 ? accentColor : 
+                        progress.attendanceRate >= 60 ? '#ff9800' : '#f44336';
+        doc.rect(barX, barY, fillWidth, barHeight)
+           .fill(barColor);
+        
+        doc.y = barY + 25;
       }
 
-      // Session History
-      if (report.data?.sessions && report.data.sessions.length > 0) {
-        // Check if we need a new page (need at least 150px for header + a few rows)
-        if (doc.y > 550) {
+      // Grouped Data Section
+      if (report.data?.grouped && report.data.grouped.length > 0) {
+        if (doc.y > 350) {
           doc.addPage();
           doc.y = 50;
         }
         
         doc.moveDown(1.5);
-        drawSectionHeader(doc, 'Session History', primaryColor);
+        drawSectionHeader(doc, 'Grouped Data', primaryColor);
         
         doc.moveDown(0.5);
         
         const tableLeft = 50;
-        const isGroupReport = report.type === 'group_progress';
+        const grouped = report.data.grouped;
         
-        if (isGroupReport) {
-          // Build student name lookup from populated scope.students
-          const studentLookup = {};
-          if (report.scope?.students) {
-            report.scope.students.forEach(s => {
-              if (s._id) {
-                studentLookup[s._id.toString()] = `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'Unknown';
-              }
-            });
+        // Get metric keys from first group (filter out objects/arrays)
+        const metricKeys = Object.keys(grouped[0]?.metrics || {}).filter(
+          key => typeof grouped[0].metrics[key] !== 'object'
+        );
+        
+        // Calculate column widths (landscape gives ~692pt usable width)
+        const labelWidth = 160;
+        const countWidth = 70;
+        const availableForMetrics = 690 - labelWidth - countWidth;
+        const metricWidth = Math.max(80, Math.floor(availableForMetrics / Math.max(metricKeys.length, 1)));
+        const totalWidth = labelWidth + countWidth + (metricKeys.length * metricWidth);
+        
+        // Table header
+        const tableTop = doc.y;
+        doc.rect(tableLeft, tableTop, totalWidth, 18).fill(lightGray);
+        
+        doc.fontSize(9)
+           .font('Helvetica-Bold')
+           .fillColor(secondaryColor);
+        
+        let headerX = tableLeft + 5;
+        doc.text('Group', headerX, tableTop + 4, { lineBreak: false, width: labelWidth - 10 });
+        headerX += labelWidth;
+        doc.text('Count', headerX, tableTop + 4, { lineBreak: false, width: countWidth - 10 });
+        headerX += countWidth;
+        
+        metricKeys.forEach(key => {
+          doc.text(formatLabel(key), headerX, tableTop + 4, { lineBreak: false, width: metricWidth - 10 });
+          headerX += metricWidth;
+        });
+        
+        let rowY = tableTop + 22;
+        
+        grouped.forEach((group, idx) => {
+          if (rowY > 520) {
+            doc.addPage();
+            rowY = 50;
           }
           
-          // Group sessions by student
-          const sessionsByStudent = {};
-          report.data.sessions.forEach(session => {
-            // Try to get student name from session, then from lookup, then default to Unknown
-            let studentName = session.studentName;
-            if ((!studentName || studentName === 'Unknown') && session.studentId) {
-              studentName = studentLookup[session.studentId.toString()];
-            }
-            if (!studentName) {
-              studentName = 'Unknown';
-            }
-            
-            if (!sessionsByStudent[studentName]) {
-              sessionsByStudent[studentName] = [];
-            }
-            sessionsByStudent[studentName].push(session);
-          });
+          if (idx % 2 === 0) {
+            doc.rect(tableLeft, rowY - 2, totalWidth, 16).fill('#fafafa');
+          }
           
-          let rowY = doc.y;
-          
-          Object.entries(sessionsByStudent).forEach(([studentName, sessions]) => {
-            // Check if we need a new page for this student section
-            if (rowY > 600) {
-              doc.addPage();
-              rowY = 50;
-            }
-            
-            // Student name header
-            doc.fontSize(12)
-               .font('Helvetica-Bold')
-               .fillColor(primaryColor)
-               .text(studentName, tableLeft, rowY);
-            rowY += 20;
-            
-            // Table header for this student
-            doc.rect(tableLeft, rowY, 480, 18)
-               .fill(lightGray);
-            
-            doc.fontSize(9)
-               .font('Helvetica-Bold')
-               .fillColor(secondaryColor);
-            
-            doc.text('Date', tableLeft + 5, rowY + 4);
-            doc.text('Duration', tableLeft + 120, rowY + 4);
-            doc.text('Status', tableLeft + 220, rowY + 4);
-            
-            rowY += 22;
-            
-            // Sessions for this student (limit to 10 per student)
-            sessions.slice(0, 10).forEach((session, index) => {
-              if (rowY > 700) {
-                doc.addPage();
-                rowY = 50;
-              }
-              
-              if (index % 2 === 0) {
-                doc.rect(tableLeft, rowY - 2, 480, 16)
-                   .fill('#fafafa');
-              }
-              
-              doc.fontSize(9)
-                 .font('Helvetica')
-                 .fillColor(secondaryColor);
-              
-              const sessionDate = session.date ? 
-                new Date(session.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 
-                'N/A';
-              
-              doc.text(sessionDate, tableLeft + 5, rowY);
-              doc.text(`${session.duration || 0} min`, tableLeft + 120, rowY);
-              
-              const statusColor = session.status === 'completed' ? accentColor :
-                                 session.status === 'cancelled' ? '#f44336' :
-                                 session.status === 'no_show' ? '#ff9800' : primaryColor;
-              doc.fillColor(statusColor)
-                 .text(session.status || 'N/A', tableLeft + 220, rowY);
-              
-              rowY += 18;
-            });
-            
-            if (sessions.length > 10) {
-              doc.fontSize(8)
-                 .fillColor('#757575')
-                 .text(`... and ${sessions.length - 10} more sessions`, tableLeft, rowY);
-              rowY += 15;
-            }
-            
-            rowY += 15; // Space between students
-          });
-          
-          doc.y = rowY;
-        } else {
-          // Individual report - original table format
-          const colWidths = [100, 100, 80, 150];
-          const tableTop = doc.y;
-          
-          doc.rect(tableLeft, tableTop, 480, 20)
-             .fill(lightGray);
-          
-          doc.fontSize(10)
-             .font('Helvetica-Bold')
+          doc.fontSize(9)
+             .font('Helvetica')
              .fillColor(secondaryColor);
           
-          doc.text('Date', tableLeft + 5, tableTop + 5);
-          doc.text('Duration', tableLeft + colWidths[0] + 5, tableTop + 5);
-          doc.text('Status', tableLeft + colWidths[0] + colWidths[1] + 5, tableTop + 5);
-          doc.text('Notes', tableLeft + colWidths[0] + colWidths[1] + colWidths[2] + 5, tableTop + 5);
+          let cellX = tableLeft + 5;
+          doc.text(String(group.label || ''), cellX, rowY, { lineBreak: false, width: labelWidth - 10 });
+          cellX += labelWidth;
+          doc.text(String(group.count || 0), cellX, rowY, { lineBreak: false, width: countWidth - 10 });
+          cellX += countWidth;
           
-          let rowY = tableTop + 25;
-          
-          report.data.sessions.slice(0, 15).forEach((session, index) => {
-            if (rowY > 700) {
-              doc.addPage();
-              rowY = 50;
-            }
-            
-            // Alternate row background
-            if (index % 2 === 0) {
-              doc.rect(tableLeft, rowY - 3, 480, 18)
-                 .fill('#fafafa');
-            }
-            
-            doc.fontSize(9)
-               .font('Helvetica')
-               .fillColor(secondaryColor);
-            
-            const sessionDate = session.date ? 
-              new Date(session.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 
-              'N/A';
-            
-            doc.text(sessionDate, tableLeft + 5, rowY);
-            doc.text(`${session.duration || 0} min`, tableLeft + colWidths[0] + 5, rowY);
-            
-            const statusColor = session.status === 'completed' ? accentColor :
-                               session.status === 'cancelled' ? '#f44336' :
-                               session.status === 'no_show' ? '#ff9800' : primaryColor;
-            doc.fillColor(statusColor)
-               .text(session.status || 'N/A', tableLeft + colWidths[0] + colWidths[1] + 5, rowY);
-            
-            doc.fillColor(secondaryColor)
-               .text((session.notes || '-').substring(0, 30), tableLeft + colWidths[0] + colWidths[1] + colWidths[2] + 5, rowY);
-            
-            rowY += 20;
+          metricKeys.forEach(key => {
+            const val = group.metrics[key];
+            const displayVal = key.toLowerCase().includes('rate') ? `${val}%` : String(val || 0);
+            doc.text(displayVal, cellX, rowY, { lineBreak: false, width: metricWidth - 10 });
+            cellX += metricWidth;
           });
           
-          // Sync doc.y with our manual rowY tracking
-          doc.y = rowY;
-          
-          if (report.data.sessions.length > 15) {
-            // Only add "more sessions" text if we have room
-            if (rowY < 700) {
-              doc.fontSize(9)
-                 .fillColor('#757575')
-                 .text(`... and ${report.data.sessions.length - 15} more sessions`, 50, rowY + 5, { 
-                   align: 'center', 
-                   width: doc.page.width - 100
-                 });
+          rowY += 18;
+        });
+        
+        doc.y = rowY + 10;
+      }
+
+      // Session Details (matching Excel format: Date, Student, Status, Duration, Location)
+      if (report.data?.sessions && report.data.sessions.length > 0) {
+        // Check if we need a new page (need at least 150px for header + a few rows)
+        if (doc.y > 400) {
+          doc.addPage();
+          doc.y = 50;
+        }
+        
+        doc.moveDown(1.5);
+        drawSectionHeader(doc, `Sessions (${report.data.sessions.length})`, primaryColor);
+        
+        doc.moveDown(0.5);
+        
+        const tableLeft = 50;
+        
+        // Build student name lookup for group reports
+        const studentLookup = {};
+        if (report.scope?.students) {
+          report.scope.students.forEach(s => {
+            if (s._id) {
+              studentLookup[s._id.toString()] = `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'Unknown';
             }
+          });
+        }
+        if (report.scope?.student) {
+          const s = report.scope.student;
+          if (s._id) {
+            studentLookup[s._id.toString()] = `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'Unknown';
           }
         }
+        
+        // Column widths: Date(100), Student(180), Status(100), Duration(90), Location(150) = 620
+        const colWidths = [100, 180, 100, 90, 150];
+        const tableWidth = colWidths.reduce((a, b) => a + b, 0);
+        const tableTop = doc.y;
+        
+        // Table header
+        doc.rect(tableLeft, tableTop, tableWidth, 20).fill(lightGray);
+        
+        doc.fontSize(9)
+           .font('Helvetica-Bold')
+           .fillColor(secondaryColor);
+        
+        const headers = ['Date', 'Student', 'Status', 'Duration', 'Location'];
+        let headerX = tableLeft + 5;
+        headers.forEach((header, idx) => {
+          doc.text(header, headerX, tableTop + 5);
+          headerX += colWidths[idx];
+        });
+        
+        let rowY = tableTop + 25;
+        
+        // Session rows
+        report.data.sessions.forEach((session, index) => {
+          if (rowY > 520) {
+            doc.addPage();
+            rowY = 50;
+          }
+          
+          // Alternate row background
+          if (index % 2 === 0) {
+            doc.rect(tableLeft, rowY - 3, tableWidth, 18).fill('#fafafa');
+          }
+          
+          doc.fontSize(9)
+             .font('Helvetica')
+             .fillColor(secondaryColor);
+          
+          // Date
+          const sessionDate = session.date ? 
+            new Date(session.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 
+            'N/A';
+          
+          // Student name
+          let studentName = session.studentName;
+          if ((!studentName || studentName === 'Unknown') && session.studentId) {
+            studentName = studentLookup[session.studentId.toString()];
+          }
+          if (!studentName) studentName = 'N/A';
+          
+          // Status with color
+          const status = (session.status || 'N/A').replace('_', ' ');
+          const statusColor = session.status === 'completed' ? accentColor :
+                             session.status === 'cancelled' ? '#f44336' :
+                             session.status === 'no_show' ? '#ff9800' : primaryColor;
+          
+          // Duration
+          const duration = session.duration ? `${session.duration} min` : 'N/A';
+          
+          // Location
+          const location = (session.location || 'N/A').replace('_', ' ');
+          
+          // Write cells
+          let cellX = tableLeft + 5;
+          doc.text(sessionDate, cellX, rowY);
+          cellX += colWidths[0];
+          doc.text(studentName.substring(0, 25), cellX, rowY);
+          cellX += colWidths[1];
+          doc.fillColor(statusColor).text(status, cellX, rowY);
+          cellX += colWidths[2];
+          doc.fillColor(secondaryColor).text(duration, cellX, rowY);
+          cellX += colWidths[3];
+          doc.text(location.substring(0, 20), cellX, rowY);
+          
+          rowY += 20;
+        });
+        
+        doc.y = rowY;
       }
 
       // Get actual page count BEFORE footer operations
@@ -453,7 +472,7 @@ function drawSectionHeader(doc, title, color) {
   doc.fontSize(14)
      .font('Helvetica-Bold')
      .fillColor(color)
-     .text(title);
+     .text(title, 50);
   
   // Underline
   const lineY = doc.y + 2;
@@ -471,7 +490,7 @@ function drawSectionHeader(doc, title, color) {
  */
 function drawStatBox(doc, x, y, label, value, color) {
   // Box
-  doc.rect(x, y, 130, 50)
+  doc.rect(x, y, 150, 50)
      .fill('#fafafa');
   
   // Value - save y position since we're using absolute positioning
@@ -479,13 +498,13 @@ function drawStatBox(doc, x, y, label, value, color) {
   doc.fontSize(20)
      .font('Helvetica-Bold')
      .fillColor(color)
-     .text(String(value), x, y + 8, { width: 130, align: 'center' });
+     .text(String(value), x, y + 8, { width: 150, align: 'center' });
   
   // Label
   doc.fontSize(9)
      .font('Helvetica')
      .fillColor('#757575')
-     .text(label, x, y + 32, { width: 130, align: 'center' });
+     .text(label, x, y + 32, { width: 150, align: 'center' });
   
   // Restore y position
   doc.y = savedY;
