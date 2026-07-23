@@ -542,6 +542,150 @@ describe('Users Routes', () => {
     });
   });
 
+  describe('POST /api/users/register', () => {
+    it('should register a new student as admin', async () => {
+      const res = await request(app)
+        .post('/api/users/register')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          email: 'newstudent@test.com',
+          firstName: 'New',
+          lastName: 'Student'
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.user.email).toBe('newstudent@test.com');
+      expect(res.body.user.role).toBe('student');
+      expect(res.body.user.googleId).toBeUndefined();
+
+      // Verify user was created in database
+      const createdUser = await User.findOne({ email: 'newstudent@test.com' });
+      expect(createdUser).toBeTruthy();
+      expect(createdUser.firstName).toBe('New');
+      expect(createdUser.lastName).toBe('Student');
+    });
+
+    it('should register a new student as navigator', async () => {
+      const res = await request(app)
+        .post('/api/users/register')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .send({
+          email: 'navstudent@test.com',
+          firstName: 'Navigator',
+          lastName: 'Student'
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.user.role).toBe('student');
+    });
+
+    it('should register student with assigned navigator', async () => {
+      const res = await request(app)
+        .post('/api/users/register')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          email: 'assigned@test.com',
+          firstName: 'Assigned',
+          lastName: 'Student',
+          assignedNavigator: navigator._id.toString()
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.user.assignedNavigator).toBeTruthy();
+      expect(res.body.user.assignedNavigator._id.toString()).toBe(navigator._id.toString());
+
+      // Verify student was added to navigator's students list
+      const updatedNavigator = await User.findById(navigator._id);
+      expect(updatedNavigator.students.map(s => s.toString())).toContain(res.body.user._id.toString());
+    });
+
+    it('should allow admin to create learning_navigator role', async () => {
+      const res = await request(app)
+        .post('/api/users/register')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          email: 'newnavigator@test.com',
+          firstName: 'New',
+          lastName: 'Navigator',
+          role: 'learning_navigator'
+        })
+        .expect(201);
+
+      expect(res.body.user.role).toBe('learning_navigator');
+    });
+
+    it('should reject navigator creating non-student role', async () => {
+      const res = await request(app)
+        .post('/api/users/register')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .send({
+          email: 'failnavigator@test.com',
+          firstName: 'Fail',
+          lastName: 'Navigator',
+          role: 'learning_navigator'
+        })
+        .expect(403);
+
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should reject registration by student', async () => {
+      await request(app)
+        .post('/api/users/register')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          email: 'shouldfail@test.com',
+          firstName: 'Should',
+          lastName: 'Fail'
+        })
+        .expect(403);
+    });
+
+    it('should reject duplicate email', async () => {
+      const res = await request(app)
+        .post('/api/users/register')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          email: student.email,
+          firstName: 'Duplicate',
+          lastName: 'Email'
+        })
+        .expect(409);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toContain('already exists');
+    });
+
+    it('should reject invalid email format', async () => {
+      const res = await request(app)
+        .post('/api/users/register')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          email: 'notanemail',
+          firstName: 'Invalid',
+          lastName: 'Email'
+        })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should reject missing required fields', async () => {
+      const res = await request(app)
+        .post('/api/users/register')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          email: 'missing@test.com'
+        })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+    });
+  });
+
   describe('DELETE /api/users/:id', () => {
     it('should soft delete (deactivate) user as admin', async () => {
       const userToDelete = await User.create({

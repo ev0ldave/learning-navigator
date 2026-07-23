@@ -58,7 +58,8 @@ export const usersAPI = {
     api.put(`/users/${studentId}/assign-navigator`, { navigatorId }),
   updateAvailability: (id, availability) => 
     api.put(`/users/${id}/availability`, { availability }),
-  deactivate: (id) => api.delete(`/users/${id}`)
+  deactivate: (id) => api.delete(`/users/${id}`),
+  registerUser: (data) => api.post('/users/register', data)
 };
 
 // Meeting endpoints

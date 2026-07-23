@@ -29,6 +29,50 @@ const handleServiceError = (error, res) => {
   return res.status(500).json({ success: false, message: 'An error occurred' });
 };
 
+// @route   POST /api/users/register
+// @desc    Manually register a new user (admin/navigator only)
+// @access  Private/Navigator
+router.post('/register',
+  isAuthenticated,
+  requireNavigator,
+  [
+    body('email').trim().isEmail().withMessage('Valid email is required'),
+    body('firstName').trim().notEmpty().withMessage('First name is required'),
+    body('lastName').trim().notEmpty().withMessage('Last name is required'),
+    body('role').optional().isIn(['student', 'learning_navigator', 'administrator']).withMessage('Invalid role'),
+    body('phone').optional().trim(),
+    body('assignedNavigator').optional().isMongoId().withMessage('Invalid navigator ID')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array()
+        });
+      }
+
+      const user = await userService.registerUser(req.body, req.user);
+
+      res.status(201).json({
+        success: true,
+        message: 'User registered successfully. They can now log in with Google to activate their account.',
+        user
+      });
+    } catch (error) {
+      if (error instanceof UserValidationError) {
+        return handleServiceError(error, res);
+      }
+      console.error('Register user error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error registering user'
+      });
+    }
+  }
+);
+
 // @route   GET /api/users
 // @desc    Get all users (admin only)
 // @access  Private/Admin

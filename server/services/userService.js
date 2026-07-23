@@ -222,6 +222,84 @@ class UserService {
 
     return user;
   }
+
+  /**
+   * Manually register a new user (admin/navigator only)
+   * When the user logs in with Google later, their account will be linked automatically
+   */
+  async registerUser(userData, requestingUser) {
+    // Only admins and learning navigators can register users
+    if (!['administrator', 'learning_navigator'].includes(requestingUser.role)) {
+      throw new UserValidationError('Only administrators and learning navigators can register users', 403);
+    }
+
+    const { email, firstName, lastName, role = 'student', phone, assignedNavigator } = userData;
+
+    // Validate required fields
+    if (!email || !firstName || !lastName) {
+      throw new UserValidationError('Email, first name, and last name are required');
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new UserValidationError('Invalid email format');
+    }
+
+    // Check if user with this email already exists
+    const existingUser = await this.userRepo.findByEmail(email);
+    if (existingUser) {
+      throw new UserValidationError('A user with this email already exists', 409);
+    }
+
+    // Only admins can create non-student roles
+    if (role !== 'student' && requestingUser.role !== 'administrator') {
+      throw new UserValidationError('Only administrators can create non-student accounts', 403);
+    }
+
+    // Validate role
+    const validRoles = ['student', 'learning_navigator', 'administrator'];
+    if (!validRoles.includes(role)) {
+      throw new UserValidationError('Invalid role specified');
+    }
+
+    // Validate assigned navigator if provided
+    if (assignedNavigator) {
+      const navigator = await this.userRepo.findNavigator(assignedNavigator);
+      if (!navigator) {
+        throw new UserValidationError('Invalid navigator specified');
+      }
+    }
+
+    // Create the user (without googleId - will be linked when they log in)
+    const User = require('../models/User');
+    const newUser = new User({
+      email: email.toLowerCase(),
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      role,
+      phone: phone?.trim() || undefined,
+      assignedNavigator: assignedNavigator || undefined,
+      isActive: true
+      // Note: googleId is NOT set - it will be set when user logs in with Google
+    });
+
+    await newUser.save();
+
+    // If navigator was assigned, add student to navigator's students list
+    if (assignedNavigator && role === 'student') {
+      await this.userRepo.updateById(assignedNavigator, {
+        $addToSet: { students: newUser._id }
+      });
+    }
+
+    // Populate assigned navigator for response
+    if (newUser.assignedNavigator) {
+      await newUser.populate('assignedNavigator', 'firstName lastName email');
+    }
+
+    return newUser;
+  }
 }
 
 // Export singleton instance and class for DI
