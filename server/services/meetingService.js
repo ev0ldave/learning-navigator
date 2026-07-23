@@ -164,22 +164,42 @@ class MeetingService {
 
   /**
    * Full validation for creating a new meeting
+   * @param {Object} meetingData - Meeting data
+   * @param {Object} user - Current user
+   * @param {boolean} isPastMeeting - If true, skip time-based validations for admin/navigator
    */
-  async validateBooking(meetingData, user) {
+  async validateBooking(meetingData, user, isPastMeeting = false) {
     const { navigatorId, startTime, endTime } = meetingData;
     const meetingStart = new Date(startTime);
     const meetingEnd = new Date(endTime);
+    const now = new Date();
+
+    // Check if this is a retroactive entry (past meeting)
+    const isRetroactive = isPastMeeting && meetingStart < now;
+    const isPrivilegedUser = ['administrator', 'learning_navigator'].includes(user.role);
+
+    // Only admin/navigator can create past meetings
+    if (isRetroactive && !isPrivilegedUser) {
+      throw new MeetingValidationError(
+        'Only administrators and learning navigators can add past meetings'
+      );
+    }
 
     // Run all validations
     const navigator = await this.validateNavigator(navigatorId);
-    this.validateStudentAdvanceBooking(meetingStart, user.role);
+    
+    // Skip time-based validations for retroactive entries by privileged users
+    if (!isRetroactive) {
+      this.validateStudentAdvanceBooking(meetingStart, user.role);
+      await this.validateQuarter(meetingStart);
+      await this.validateAvailability(navigatorId, meetingStart, meetingEnd);
+      await this.checkConflicts(navigatorId, meetingStart, meetingEnd);
+    }
+    
     this.validatePhoneMeeting(meetingData.location, meetingData.phoneNumber);
     this.validateVirtualMeeting(meetingData.location, navigator);
-    await this.validateQuarter(meetingStart);
-    await this.validateAvailability(navigatorId, meetingStart, meetingEnd);
-    await this.checkConflicts(navigatorId, meetingStart, meetingEnd);
 
-    return { navigator, meetingStart, meetingEnd };
+    return { navigator, meetingStart, meetingEnd, isRetroactive };
   }
 
   /**
@@ -210,10 +230,16 @@ class MeetingService {
 
   /**
    * Create a meeting
+   * @param {Object} meetingData - Meeting data including optional isPastMeeting flag
+   * @param {Object} user - Current user
    */
   async createMeeting(meetingData, user) {
-    // Validate booking
-    const { navigator, meetingStart, meetingEnd } = await this.validateBooking(meetingData, user);
+    // Validate booking (pass isPastMeeting flag)
+    const { navigator, meetingStart, meetingEnd, isRetroactive } = await this.validateBooking(
+      meetingData, 
+      user, 
+      meetingData.isPastMeeting
+    );
 
     // Determine student ID
     let studentId = user._id;
@@ -221,10 +247,13 @@ class MeetingService {
       studentId = meetingData.studentId;
     }
 
+    // Past meetings cannot be recurring
+    const isRecurring = isRetroactive ? false : (meetingData.isRecurring || false);
+
     // Calculate recurrence settings
     const { frequency: recurrenceFrequency, endDate: recurrenceEndDate } = 
       await this.calculateRecurrenceSettings(
-        meetingData.isRecurring,
+        isRecurring,
         user.role,
         meetingData.recurrence
       );
@@ -236,6 +265,12 @@ class MeetingService {
       meetingLink = navigator.zoomLink;
     }
 
+    // Determine initial status - past meetings default to completed
+    let status = 'scheduled';
+    if (isRetroactive) {
+      status = meetingData.status || 'completed';
+    }
+
     // Create the meeting
     const meeting = await this.meetingRepo.create({
       student: studentId,
@@ -244,9 +279,9 @@ class MeetingService {
       description: meetingData.description,
       startTime: meetingStart,
       endTime: meetingEnd,
-      type: meetingData.isRecurring ? 'recurring' : 'initial',
-      isRecurring: meetingData.isRecurring || false,
-      recurrence: meetingData.isRecurring ? {
+      type: isRecurring ? 'recurring' : 'initial',
+      isRecurring: isRecurring,
+      recurrence: isRecurring ? {
         frequency: recurrenceFrequency,
         dayOfWeek: meetingStart.getDay(),
         endDate: recurrenceEndDate
@@ -254,10 +289,11 @@ class MeetingService {
       location: meetingData.location || 'virtual',
       meetingLink: meetingLink,
       phoneNumber: meetingData.location === 'phone' ? meetingData.phoneNumber : undefined,
+      status: status,
       createdBy: user._id
     });
 
-    return { meeting, recurrenceEndDate };
+    return { meeting, recurrenceEndDate, isRetroactive };
   }
 
   /**

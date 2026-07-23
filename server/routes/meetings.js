@@ -145,7 +145,10 @@ router.post('/',
         throw new Error('Phone number is required for phone meetings');
       }
       return true;
-    })
+    }),
+    body('isPastMeeting').optional().isBoolean(),
+    body('status').optional().isIn(['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show']),
+    body('studentId').optional().isMongoId().withMessage('Valid student ID required')
   ],
   async (req, res) => {
     try {
@@ -158,7 +161,7 @@ router.post('/',
       }
       
       // Use MeetingService for business logic
-      const { meeting, recurrenceEndDate } = await meetingService.createMeeting(req.body, req.user);
+      const { meeting, recurrenceEndDate, isRetroactive } = await meetingService.createMeeting(req.body, req.user);
       
       // Populate for response
       await meeting.populate([
@@ -166,20 +169,23 @@ router.post('/',
         { path: 'navigator', select: 'firstName lastName email profilePicture' }
       ]);
       
-      // Create Google Calendar event
-      await queueCalendarCreate(meeting._id.toString());
-      
-      // Send notifications
-      await queueMeetingNotification(meeting._id.toString(), 'scheduled');
-      
-      // If recurring, create future meetings
-      if (req.body.isRecurring && recurrenceEndDate) {
-        await createRecurringMeetings(meeting, recurrenceEndDate);
+      // Only create calendar events and send notifications for future meetings
+      if (!isRetroactive) {
+        // Create Google Calendar event
+        await queueCalendarCreate(meeting._id.toString());
+        
+        // Send notifications
+        await queueMeetingNotification(meeting._id.toString(), 'scheduled');
+        
+        // If recurring, create future meetings
+        if (req.body.isRecurring && recurrenceEndDate) {
+          await createRecurringMeetings(meeting, recurrenceEndDate);
+        }
       }
       
       res.status(201).json({
         success: true,
-        message: 'Meeting scheduled successfully',
+        message: isRetroactive ? 'Past meeting recorded successfully' : 'Meeting scheduled successfully',
         meeting
       });
     } catch (error) {

@@ -14,21 +14,54 @@ import {
   CircularProgress,
   Alert,
   TextField,
-  InputAdornment
+  InputAdornment,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
-import { Search as SearchIcon, Person as PersonIcon } from '@mui/icons-material';
+import { Search as SearchIcon, Person as PersonIcon, PersonAdd as PersonAddIcon } from '@mui/icons-material';
 import { usersAPI } from '../services/api';
+import { useNotification } from '../contexts/NotificationContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const Students = () => {
   const navigate = useNavigate();
+  const { showSuccess, showError } = useNotification();
+  const { user: currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState([]);
+  const [navigators, setNavigators] = useState([]);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
+  const [registerForm, setRegisterForm] = useState({
+    email: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+    assignedNavigator: ''
+  });
+  const [registerLoading, setRegisterLoading] = useState(false);
 
   useEffect(() => {
     fetchStudents();
+    fetchNavigators();
   }, []);
+
+  const fetchNavigators = async () => {
+    try {
+      const response = await usersAPI.getNavigators();
+      setNavigators(response.data.navigators || []);
+    } catch (err) {
+      console.error('Error fetching navigators:', err);
+    }
+  };
 
   const fetchStudents = async () => {
     try {
@@ -39,6 +72,35 @@ const Students = () => {
       setError('Failed to load students');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRegisterStudent = async () => {
+    try {
+      setRegisterLoading(true);
+      const dataToSend = {
+        email: registerForm.email,
+        firstName: registerForm.firstName,
+        lastName: registerForm.lastName,
+        role: 'student',
+        phone: registerForm.phone || undefined,
+        assignedNavigator: registerForm.assignedNavigator || undefined
+      };
+      await usersAPI.registerUser(dataToSend);
+      showSuccess('Student registered successfully. They can now log in with Google.');
+      setRegisterDialogOpen(false);
+      setRegisterForm({
+        email: '',
+        firstName: '',
+        lastName: '',
+        phone: '',
+        assignedNavigator: ''
+      });
+      fetchStudents();
+    } catch (err) {
+      showError(err.response?.data?.message || 'Failed to register student');
+    } finally {
+      setRegisterLoading(false);
     }
   };
 
@@ -54,7 +116,16 @@ const Students = () => {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>Students</Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4">Students</Typography>
+        <Button
+          variant="contained"
+          startIcon={<PersonAddIcon />}
+          onClick={() => setRegisterDialogOpen(true)}
+        >
+          Register Student
+        </Button>
+      </Box>
 
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
@@ -108,6 +179,74 @@ const Students = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Register Student Dialog */}
+      <Dialog open={registerDialogOpen} onClose={() => setRegisterDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Register New Student</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <TextField
+              label="Email"
+              type="email"
+              value={registerForm.email}
+              onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
+              required
+              fullWidth
+            />
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField
+                label="First Name"
+                value={registerForm.firstName}
+                onChange={(e) => setRegisterForm({ ...registerForm, firstName: e.target.value })}
+                required
+                fullWidth
+              />
+              <TextField
+                label="Last Name"
+                value={registerForm.lastName}
+                onChange={(e) => setRegisterForm({ ...registerForm, lastName: e.target.value })}
+                required
+                fullWidth
+              />
+            </Box>
+            <TextField
+              label="Phone (optional)"
+              value={registerForm.phone}
+              onChange={(e) => setRegisterForm({ ...registerForm, phone: e.target.value })}
+              fullWidth
+            />
+            <FormControl fullWidth>
+              <InputLabel>Assign Navigator (optional)</InputLabel>
+              <Select
+                value={registerForm.assignedNavigator}
+                onChange={(e) => setRegisterForm({ ...registerForm, assignedNavigator: e.target.value })}
+                label="Assign Navigator (optional)"
+              >
+                <MenuItem value="">None</MenuItem>
+                {navigators.map((nav) => (
+                  <MenuItem key={nav._id} value={nav._id}>
+                    {nav.firstName} {nav.lastName}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography variant="body2" color="text.secondary">
+              The student will be able to log in with Google using this email address.
+              Their Google account will be automatically linked to this profile.
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRegisterDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleRegisterStudent}
+            variant="contained"
+            disabled={registerLoading || !registerForm.email || !registerForm.firstName || !registerForm.lastName}
+          >
+            {registerLoading ? 'Registering...' : 'Register Student'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

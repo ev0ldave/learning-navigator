@@ -19,8 +19,8 @@ import {
   Grid,
   Chip
 } from '@mui/material';
-import { DatePicker } from '@mui/x-date-pickers';
-import { addMinutes, addDays, format, startOfDay, isAfter } from 'date-fns';
+import { DatePicker, TimePicker } from '@mui/x-date-pickers';
+import { addMinutes, addDays, format, startOfDay, isAfter, setHours, setMinutes } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { usersAPI, meetingsAPI, calendarAPI, adminAPI } from '../../services/api';
@@ -61,12 +61,21 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
     phoneNumber: '', // Will be populated with student's phone when selected
     isRecurring: false,
     recurrenceFrequency: 'weekly',
-    recurrenceEndDate: null
+    recurrenceEndDate: null,
+    isPastMeeting: false,
+    pastMeetingStatus: 'completed',
+    manualTime: null // For past meetings, allow manual time entry
   });
 
   // Calculate minimum date - students must book 24 hours in advance
   // Also respect quarter start date if set
+  // For past meetings (admin/navigator only), no minimum date
   const getMinDate = () => {
+    // Past meetings have no minimum date
+    if (formData.isPastMeeting) {
+      return null;
+    }
+    
     let minDate;
     if (isStudent()) {
       // For students, minimum date is tomorrow (start of day)
@@ -87,7 +96,11 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
   };
 
   // Calculate maximum date based on active quarter end date
+  // For past meetings, max date is today
   const getMaxDate = () => {
+    if (formData.isPastMeeting) {
+      return new Date(); // Can't add "past" meetings in the future
+    }
     if (activeQuarter?.endDate) {
       return startOfDay(new Date(activeQuarter.endDate));
     }
@@ -116,7 +129,16 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
       const navigatorId = isNavigator() ? user._id : '';
       // For students, pre-populate their own phone number
       const phoneNumber = isStudent() ? formatPhoneNumber(user?.phone || '') : '';
-      setFormData(prev => ({ ...prev, date: dateToUse, startTime: null, navigatorId, phoneNumber }));
+      setFormData(prev => ({ 
+        ...prev, 
+        date: dateToUse, 
+        startTime: null, 
+        navigatorId, 
+        phoneNumber,
+        isPastMeeting: false,
+        pastMeetingStatus: 'completed',
+        manualTime: null
+      }));
       setAvailableSlots([]); // Clear slots when reopening
       setFieldErrors({}); // Clear field errors when reopening
       setError(null); // Clear general error when reopening
@@ -207,8 +229,15 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
         errors.studentId = 'Please select a student';
       }
       
-      if (!formData.startTime) {
-        errors.startTime = 'Please select a time slot from the available options';
+      // For past meetings, use manual time; for regular meetings, use slot selection
+      if (formData.isPastMeeting) {
+        if (!formData.manualTime) {
+          errors.manualTime = 'Please select a time for the meeting';
+        }
+      } else {
+        if (!formData.startTime) {
+          errors.startTime = 'Please select a time slot from the available options';
+        }
       }
       
       // Validate phone number for phone meetings
@@ -228,45 +257,57 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
       // Clear field errors if validation passes
       setFieldErrors({});
       
-      // Validate that a time slot has been selected
-      if (!formData.startTime) {
-        setError('Please select a time slot from the available options');
-        showError('Please select a time slot');
-        return;
-      }
-      
-      // ALL users must select from available slots to ensure booking is within navigator availability
-      if (availableSlots.length === 0) {
-        setError('No available time slots for the selected date. The navigator may not have set their availability for this day.');
-        showError('No available time slots for the selected date');
-        return;
-      }
-      
-      // Validate selected time matches an available slot (compare timestamps for accuracy)
-      const selectedTimestamp = formData.startTime.getTime();
-      const isValidSlot = availableSlots.some(slot => 
-        new Date(slot.start).getTime() === selectedTimestamp
-      );
-      if (!isValidSlot) {
-        setError("Please select a time from the available slots shown. The selected time is outside the navigator's availability.");
-        showError('Please select a time from the available slots');
-        return;
-      }
-      
-      // For students: additional 24-hour check as a safeguard
-      if (isStudent()) {
-        const twentyFourHoursFromNow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        if (formData.startTime < twentyFourHoursFromNow) {
-          setError('Students must book meetings at least 24 hours in advance');
-          showError('Students must book meetings at least 24 hours in advance');
+      // For non-past meetings, validate slot selection
+      if (!formData.isPastMeeting) {
+        // Validate that a time slot has been selected
+        if (!formData.startTime) {
+          setError('Please select a time slot from the available options');
+          showError('Please select a time slot');
           return;
+        }
+        
+        // ALL users must select from available slots to ensure booking is within navigator availability
+        if (availableSlots.length === 0) {
+          setError('No available time slots for the selected date. The navigator may not have set their availability for this day.');
+          showError('No available time slots for the selected date');
+          return;
+        }
+        
+        // Validate selected time matches an available slot (compare timestamps for accuracy)
+        const selectedTimestamp = formData.startTime.getTime();
+        const isValidSlot = availableSlots.some(slot => 
+          new Date(slot.start).getTime() === selectedTimestamp
+        );
+        if (!isValidSlot) {
+          setError("Please select a time from the available slots shown. The selected time is outside the navigator's availability.");
+          showError('Please select a time from the available slots');
+          return;
+        }
+        
+        // For students: additional 24-hour check as a safeguard
+        if (isStudent()) {
+          const twentyFourHoursFromNow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          if (formData.startTime < twentyFourHoursFromNow) {
+            setError('Students must book meetings at least 24 hours in advance');
+            showError('Students must book meetings at least 24 hours in advance');
+            return;
+          }
         }
       }
       
       setLoading(true);
 
-      // Use the slot time directly - it's already in the correct UTC format from the server
-      const startDateTime = new Date(formData.startTime);
+      // Calculate start and end times
+      let startDateTime;
+      if (formData.isPastMeeting) {
+        // For past meetings, combine date and manual time
+        const timeDate = formData.manualTime;
+        startDateTime = new Date(formData.date);
+        startDateTime.setHours(timeDate.getHours(), timeDate.getMinutes(), 0, 0);
+      } else {
+        // Use the slot time directly - it's already in the correct UTC format from the server
+        startDateTime = new Date(formData.startTime);
+      }
       const endDateTime = addMinutes(startDateTime, formData.duration);
 
       // For students, recurring meetings are always weekly until quarter end
@@ -295,12 +336,14 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
         description: formData.description,
         location: formData.location,
         phoneNumber: formData.location === 'phone' ? formData.phoneNumber : undefined,
-        isRecurring: formData.isRecurring,
-        recurrence: recurrenceData
+        isRecurring: formData.isPastMeeting ? false : formData.isRecurring, // Past meetings can't be recurring
+        recurrence: formData.isPastMeeting ? undefined : recurrenceData,
+        isPastMeeting: formData.isPastMeeting,
+        status: formData.isPastMeeting ? formData.pastMeetingStatus : undefined
       };
 
       await meetingsAPI.create(meetingData);
-      showSuccess('Meeting scheduled successfully!');
+      showSuccess(formData.isPastMeeting ? 'Past meeting recorded successfully!' : 'Meeting scheduled successfully!');
       onSuccess();
     } catch (err) {
       const message = err.response?.data?.message || 'Failed to schedule meeting';
@@ -321,7 +364,9 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
-        {isStudent() ? 'Book a Session' : 'Schedule a Meeting'}
+        {formData.isPastMeeting 
+          ? 'Add Past Meeting' 
+          : (isStudent() ? 'Book a Session' : 'Schedule a Meeting')}
       </DialogTitle>
       <DialogContent>
         {error && (
@@ -391,37 +436,104 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
             </Grid>
           )}
 
+          {/* Past Meeting Toggle - only for navigators/admins */}
+          {isNavigator() && (
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.isPastMeeting}
+                    onChange={(e) => setFormData({ 
+                      ...formData, 
+                      isPastMeeting: e.target.checked,
+                      startTime: null,
+                      manualTime: null,
+                      isRecurring: false // Past meetings can't be recurring
+                    })}
+                  />
+                }
+                label="Add past meeting (record a meeting that already happened)"
+              />
+              {formData.isPastMeeting && (
+                <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: 0.5 }}>
+                  Use this to record meetings that occurred outside the app. No calendar events or notifications will be sent.
+                </Typography>
+              )}
+            </Grid>
+          )}
+
           {/* Date Selection */}
           <Grid item xs={12} md={6}>
             <DatePicker
               label="Date"
               value={formData.date}
-              onChange={(date) => setFormData({ ...formData, date, startTime: null })}
+              onChange={(date) => setFormData({ ...formData, date, startTime: null, manualTime: null })}
               minDate={getMinDate()}
               maxDate={getMaxDate()}
               slotProps={{ 
                 textField: { 
                   fullWidth: true,
-                  helperText: activeQuarter ? `${activeQuarter.name}: ${format(new Date(activeQuarter.startDate), 'MMM d')} - ${format(new Date(activeQuarter.endDate), 'MMM d, yyyy')}` : undefined
+                  helperText: formData.isPastMeeting 
+                    ? 'Select the date the meeting occurred'
+                    : (activeQuarter ? `${activeQuarter.name}: ${format(new Date(activeQuarter.startDate), 'MMM d')} - ${format(new Date(activeQuarter.endDate), 'MMM d, yyyy')}` : undefined)
                 } 
               }}
             />
           </Grid>
 
-          {/* Selected Time Display - read-only for all users, must select from slots */}
-          <Grid item xs={12} md={6}>
-            <TextField
-              label="Start Time (Pacific)"
-              value={formData.startTime ? formatPacificTime(formData.startTime) : 'Select from slots below'}
-              fullWidth
-              disabled
-              helperText="All times are in Pacific timezone"
-              InputProps={{ readOnly: true }}
-            />
-          </Grid>
+          {/* Time Selection - different for past vs future meetings */}
+          {formData.isPastMeeting ? (
+            <>
+              <Grid item xs={12} md={6}>
+                <TimePicker
+                  label="Meeting Time"
+                  value={formData.manualTime}
+                  onChange={(time) => {
+                    setFormData({ ...formData, manualTime: time });
+                    setFieldErrors(prev => ({ ...prev, manualTime: undefined }));
+                  }}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      error: !!fieldErrors.manualTime,
+                      helperText: fieldErrors.manualTime || 'Select the time the meeting started'
+                    }
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Meeting Status</InputLabel>
+                  <Select
+                    value={formData.pastMeetingStatus}
+                    onChange={(e) => setFormData({ ...formData, pastMeetingStatus: e.target.value })}
+                    label="Meeting Status"
+                  >
+                    <MenuItem value="completed">Completed</MenuItem>
+                    <MenuItem value="no_show">No Show</MenuItem>
+                    <MenuItem value="cancelled">Cancelled</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            </>
+          ) : (
+            <>
+              {/* Selected Time Display - read-only for all users, must select from slots */}
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Start Time (Pacific)"
+                  value={formData.startTime ? formatPacificTime(formData.startTime) : 'Select from slots below'}
+                  fullWidth
+                  disabled
+                  helperText="All times are in Pacific timezone"
+                  InputProps={{ readOnly: true }}
+                />
+              </Grid>
+            </>
+          )}
 
-          {/* Available Slots - required for ALL users */}
-          {formData.navigatorId && (
+          {/* Available Slots - required for ALL users (but not for past meetings) */}
+          {formData.navigatorId && !formData.isPastMeeting && (
             <Grid item xs={12}>
               <Box sx={{ 
                 border: fieldErrors.startTime ? '1px solid' : 'none',
@@ -476,32 +588,34 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
             </Grid>
           )}
 
-          {/* Recurring - positioned after time slots */}
-          <Grid item xs={12}>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={formData.isRecurring}
-                  onChange={(e) => setFormData({ ...formData, isRecurring: e.target.checked })}
-                  disabled={isStudent() && !activeQuarter}
-                />
-              }
-              label="Make this a recurring meeting"
-            />
-            {formData.isRecurring && isStudent() && activeQuarter && (
-              <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: 0.5 }}>
-                Recurring meetings repeat weekly until the end of {activeQuarter.name} ({format(new Date(activeQuarter.endDate), 'MMM d, yyyy')})
-              </Typography>
-            )}
-            {isStudent() && !activeQuarter && (
-              <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: 0.5 }}>
-                Recurring meetings require an active school quarter to be set
-              </Typography>
-            )}
-          </Grid>
+          {/* Recurring - positioned after time slots (not available for past meetings) */}
+          {!formData.isPastMeeting && (
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.isRecurring}
+                    onChange={(e) => setFormData({ ...formData, isRecurring: e.target.checked })}
+                    disabled={isStudent() && !activeQuarter}
+                  />
+                }
+                label="Make this a recurring meeting"
+              />
+              {formData.isRecurring && isStudent() && activeQuarter && (
+                <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: 0.5 }}>
+                  Recurring meetings repeat weekly until the end of {activeQuarter.name} ({format(new Date(activeQuarter.endDate), 'MMM d, yyyy')})
+                </Typography>
+              )}
+              {isStudent() && !activeQuarter && (
+                <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: 0.5 }}>
+                  Recurring meetings require an active school quarter to be set
+                </Typography>
+              )}
+            </Grid>
+          )}
 
-          {/* For non-students, show frequency and end date options */}
-          {formData.isRecurring && !isStudent() && (
+          {/* For non-students, show frequency and end date options (not for past meetings) */}
+          {formData.isRecurring && !isStudent() && !formData.isPastMeeting && (
             <>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
@@ -634,7 +748,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
           variant="contained"
           disabled={loading || (!formData.navigatorId && isStudent()) || (!formData.studentId && isNavigator())}
         >
-          {loading ? <CircularProgress size={24} /> : 'Schedule Meeting'}
+          {loading ? <CircularProgress size={24} /> : (formData.isPastMeeting ? 'Add Past Meeting' : 'Schedule Meeting')}
         </Button>
       </DialogActions>
     </Dialog>
