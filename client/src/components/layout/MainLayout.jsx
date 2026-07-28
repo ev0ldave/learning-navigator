@@ -263,8 +263,9 @@ const MainLayout = () => {
         component="main"
         sx={{
           flexGrow: 1,
+          boxSizing: 'border-box',
           p: { xs: 1.5, sm: 2, md: 3 },
-          width: { md: `calc(100% - ${drawerWidth}px)` },
+          width: { xs: '100%', md: `calc(100% - ${drawerWidth}px)` },
           minHeight: '100vh',
           bgcolor: 'background.default',
           pb: { xs: 10, md: 3 }
