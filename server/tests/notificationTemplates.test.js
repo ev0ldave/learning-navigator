@@ -3,7 +3,9 @@
  * Tests Open/Closed Principle compliance
  */
 const {
-  BaseNotificationTemplate,
+  EmailContent,
+  InAppContent,
+  NotificationTemplate,
   ScheduledNotificationTemplate,
   CancelledNotificationTemplate,
   RescheduledNotificationTemplate,
@@ -45,20 +47,27 @@ describe('NotificationTemplates - Strategy Pattern', () => {
     content: 'Great progress today!'
   };
 
-  describe('BaseNotificationTemplate', () => {
-    it('should throw if methods are not implemented', () => {
-      const base = new BaseNotificationTemplate();
-      const context = {};
+  describe('Channel interfaces (ISP + fail-fast construction)', () => {
+    it('should throw if an EmailContent does not implement body()', () => {
+      class BadEmail extends EmailContent { subject() { return 's'; } }
+      expect(() => new BadEmail()).toThrow('must implement body()');
+    });
 
-      expect(() => base.getEmailSubject(context)).toThrow('getEmailSubject must be implemented');
-      expect(() => base.getNotificationTitle(context)).toThrow('getNotificationTitle must be implemented');
-      expect(() => base.getNotificationMessage(context)).toThrow('getNotificationMessage must be implemented');
-      expect(() => base.getEmailBody(context)).toThrow('getEmailBody must be implemented');
+    it('should throw if an InAppContent does not implement message()', () => {
+      class BadInApp extends InAppContent { title() { return 't'; } }
+      expect(() => new BadInApp()).toThrow('must implement message()');
+    });
+
+    it('should reject a NotificationTemplate built with the wrong channel types', () => {
+      expect(() => new NotificationTemplate({ email: {}, inApp: {} }))
+        .toThrow('email must be an EmailContent instance');
     });
 
     it('should default shouldNotifyNavigator to true', () => {
-      const base = new BaseNotificationTemplate();
-      expect(base.shouldNotifyNavigator({})).toBe(true);
+      class OkEmail extends EmailContent { subject() { return 's'; } body() { return 'b'; } }
+      class OkInApp extends InAppContent { title() { return 't'; } message() { return 'm'; } }
+      const tmpl = new NotificationTemplate({ email: new OkEmail(), inApp: new OkInApp() });
+      expect(tmpl.shouldNotifyNavigator({})).toBe(true);
     });
   });
 
@@ -169,12 +178,19 @@ describe('NotificationTemplates - Strategy Pattern', () => {
     });
 
     it('should allow registering new templates (extensibility)', () => {
-      // Create a custom template
-      class CustomNotificationTemplate extends BaseNotificationTemplate {
-        getEmailSubject() { return 'Custom Subject'; }
-        getNotificationTitle() { return 'Custom Title'; }
-        getNotificationMessage() { return 'Custom message'; }
-        getEmailBody() { return '<p>Custom body</p>'; }
+      // Create custom segregated channels
+      class CustomEmail extends EmailContent {
+        subject() { return 'Custom Subject'; }
+        body() { return '<p>Custom body</p>'; }
+      }
+      class CustomInApp extends InAppContent {
+        title() { return 'Custom Title'; }
+        message() { return 'Custom message'; }
+      }
+      class CustomNotificationTemplate extends NotificationTemplate {
+        constructor() {
+          super({ email: new CustomEmail(), inApp: new CustomInApp() });
+        }
       }
 
       // Register it
@@ -187,7 +203,7 @@ describe('NotificationTemplates - Strategy Pattern', () => {
     });
 
     it('should reject non-template objects', () => {
-      expect(() => registerTemplate('invalid', {})).toThrow('must extend BaseNotificationTemplate');
+      expect(() => registerTemplate('invalid', {})).toThrow('must be a NotificationTemplate');
     });
   });
 

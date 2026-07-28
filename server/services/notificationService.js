@@ -87,28 +87,16 @@ class EmailSender {
 // Default email sender instance
 const emailSender = new EmailSender();
 
-// Send email (backward compatible)
-const sendEmail = async (to, subject, html, text) => {
-  try {
-    return await emailSender.send(to, subject, html, text);
-  } catch (error) {
-    console.error('Error sending email:', error);
-    throw error;
-  }
+/**
+ * Default collaborators (Dependency Inversion seams). The workflow depends on
+ * these abstractions, not on the concrete User/Notification models directly.
+ */
+const defaultUserProvider = {
+  findById: (id) => User.findById(id)
 };
 
-// Create in-app notification
-const createNotification = async ({
-  recipientId,
-  senderId,
-  type,
-  title,
-  message,
-  meetingId,
-  noteId,
-  metadata
-}) => {
-  try {
+const defaultNotificationStore = {
+  async create({ recipientId, senderId, type, title, message, meetingId, noteId, metadata }) {
     const notification = new Notification({
       recipient: recipientId,
       sender: senderId,
@@ -123,61 +111,210 @@ const createNotification = async ({
         inApp: { enabled: true, read: false }
       }
     });
-
     await notification.save();
     return notification;
-  } catch (error) {
-    console.error('Error creating notification:', error);
-    throw error;
   }
 };
 
 /**
- * Send meeting notification using strategy pattern
- * Template is selected based on type, allowing extension without modification
- * 
- * OPTIMIZATION: Accepts pre-populated meeting objects to avoid duplicate DB lookups.
- * If meeting.student/navigator are ObjectIds, will fetch (backwards compatible).
+ * NotificationService - orchestrates notification delivery with injected
+ * dependencies (email sender, user provider, notification store, template
+ * resolver), making the whole workflow testable and substitutable.
  */
-const sendMeetingNotification = async (meeting, type) => {
-  try {
-    // Use populated data if available, otherwise fetch (backwards compatibility)
-    const student = meeting.student?.email 
-      ? meeting.student 
-      : await User.findById(meeting.student);
-    const navigator = meeting.navigator?.email 
-      ? meeting.navigator 
-      : await User.findById(meeting.navigator);
+class NotificationService {
+  constructor({
+    sender = emailSender,
+    userProvider = defaultUserProvider,
+    notificationStore = defaultNotificationStore,
+    templateResolver = getTemplate
+  } = {}) {
+    this.sender = sender;
+    this.users = userProvider;
+    this.store = notificationStore;
+    this.resolveTemplate = templateResolver;
+  }
+
+  async sendEmail(to, subject, html, text) {
+    try {
+      return await this.sender.send(to, subject, html, text);
+    } catch (error) {
+      console.error('Error sending email:', error);
+      throw error;
+    }
+  }
+
+  async sendEmailDirect(to, subject, html, text) {
+    return this.sender.send(to, subject, html, text);
+  }
+
+  async createNotification(data) {
+    try {
+      return await this.store.create(data);
+    } catch (error) {
+      console.error('Error creating notification:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Resolve a participant: use populated doc if available, else fetch.
+   */
+  async _resolveUser(idOrDoc) {
+    return idOrDoc?.email ? idOrDoc : this.users.findById(idOrDoc);
+  }
+
+  /**
+   * Send a meeting notification using the strategy template (catches email
+   * failures so a delivery hiccup does not abort the operation).
+   */
+  async sendMeetingNotification(meeting, type) {
+    try {
+      const student = await this._resolveUser(meeting.student);
+      const navigator = await this._resolveUser(meeting.navigator);
+
+      if (!student || !navigator) {
+        console.error('Could not find student or navigator for notification');
+        return;
+      }
+
+      const template = this.resolveTemplate(type);
+      const context = { meeting, student, navigator };
+
+      const emailSubject = template.email.subject(context);
+      const emailBody = template.email.body(context);
+      const notificationTitle = template.inApp.title(context);
+      const notificationMessage = template.inApp.message(context);
+
+      const notificationType = `meeting_${type}`;
+
+      // Send to student
+      if (student.notificationPreferences?.email !== false) {
+        try {
+          await this.sendEmail(student.email, emailSubject, emailBody);
+        } catch (emailError) {
+          console.error('Failed to send email to student:', emailError);
+        }
+      }
+
+      await this.createNotification({
+        recipientId: student._id,
+        senderId: navigator._id,
+        type: notificationType,
+        title: notificationTitle,
+        message: notificationMessage,
+        meetingId: meeting._id
+      });
+
+      // Send to navigator if template allows
+      if (template.shouldNotifyNavigator(context)) {
+        if (navigator.notificationPreferences?.email !== false) {
+          try {
+            await this.sendEmail(navigator.email, emailSubject, emailBody);
+          } catch (emailError) {
+            console.error('Failed to send email to navigator:', emailError);
+          }
+        }
+
+        await this.createNotification({
+          recipientId: navigator._id,
+          senderId: student._id,
+          type: notificationType,
+          title: notificationTitle,
+          message: notificationMessage,
+          meetingId: meeting._id
+        });
+      }
+
+      // Update meeting notification history
+      meeting.notificationsSent = meeting.notificationsSent || [];
+      meeting.notificationsSent.push({
+        type,
+        sentAt: new Date(),
+        sentTo: [student._id, navigator._id]
+      });
+      await meeting.save();
+    } catch (error) {
+      console.error('Error sending meeting notification:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send a note-shared notification (student only).
+   */
+  async sendNoteSharedNotification(note, student) {
+    try {
+      const navigator = await this._resolveUser(note.navigator);
+
+      if (!navigator) {
+        console.error('Could not find navigator for notification');
+        return;
+      }
+
+      const template = this.resolveTemplate('note_shared');
+      const context = { note, student, navigator };
+
+      const emailSubject = template.email.subject(context);
+      const emailBody = template.email.body(context);
+      const notificationTitle = template.inApp.title(context);
+      const notificationMessage = template.inApp.message(context);
+
+      if (student.notificationPreferences?.email !== false) {
+        try {
+          await this.sendEmail(student.email, emailSubject, emailBody);
+          note.emailSent = true;
+          note.emailSentAt = new Date();
+          await note.save();
+        } catch (emailError) {
+          console.error('Failed to send note email:', emailError);
+        }
+      }
+
+      await this.createNotification({
+        recipientId: student._id,
+        senderId: navigator._id,
+        type: 'note_shared',
+        title: notificationTitle,
+        message: notificationMessage,
+        noteId: note._id
+      });
+    } catch (error) {
+      console.error('Error sending note notification:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Direct meeting notification - throws on total failure for job-queue retry.
+   */
+  async sendMeetingNotificationDirect(meeting, type) {
+    const student = await this._resolveUser(meeting.student);
+    const navigator = await this._resolveUser(meeting.navigator);
 
     if (!student || !navigator) {
-      console.error('Could not find student or navigator for notification');
-      return;
+      throw new Error('Could not find student or navigator for notification');
     }
 
-    // Get template using strategy pattern (Open/Closed Principle)
-    const template = getTemplate(type);
+    const template = this.resolveTemplate(type);
     const context = { meeting, student, navigator };
 
-    // Generate content from template
-    const emailSubject = template.getEmailSubject(context);
-    const emailBody = template.getEmailBody(context);
-    const notificationTitle = template.getNotificationTitle(context);
-    const notificationMessage = template.getNotificationMessage(context);
+    const emailSubject = template.email.subject(context);
+    const emailBody = template.email.body(context);
+    const notificationTitle = template.inApp.title(context);
+    const notificationMessage = template.inApp.message(context);
 
-    // Determine notification type for database
     const notificationType = `meeting_${type}`;
+    const emailErrors = [];
 
-    // Send to student
     if (student.notificationPreferences?.email !== false) {
       try {
-        await sendEmail(student.email, emailSubject, emailBody);
+        await this.sendEmailDirect(student.email, emailSubject, emailBody);
       } catch (emailError) {
-        console.error('Failed to send email to student:', emailError);
+        emailErrors.push(`Student email: ${emailError.message}`);
       }
     }
 
-    // Create in-app notification for student
-    await createNotification({
+    await this.createNotification({
       recipientId: student._id,
       senderId: navigator._id,
       type: notificationType,
@@ -186,17 +323,16 @@ const sendMeetingNotification = async (meeting, type) => {
       meetingId: meeting._id
     });
 
-    // Send to navigator if template allows
     if (template.shouldNotifyNavigator(context)) {
       if (navigator.notificationPreferences?.email !== false) {
         try {
-          await sendEmail(navigator.email, emailSubject, emailBody);
+          await this.sendEmailDirect(navigator.email, emailSubject, emailBody);
         } catch (emailError) {
-          console.error('Failed to send email to navigator:', emailError);
+          emailErrors.push(`Navigator email: ${emailError.message}`);
         }
       }
 
-      await createNotification({
+      await this.createNotification({
         recipientId: navigator._id,
         senderId: student._id,
         type: notificationType,
@@ -206,7 +342,6 @@ const sendMeetingNotification = async (meeting, type) => {
       });
     }
 
-    // Update meeting notification history
     meeting.notificationsSent = meeting.notificationsSent || [];
     meeting.notificationsSent.push({
       type,
@@ -215,52 +350,40 @@ const sendMeetingNotification = async (meeting, type) => {
     });
     await meeting.save();
 
-  } catch (error) {
-    console.error('Error sending meeting notification:', error);
-    throw error;
-  }
-};
+    const expectedEmails = template.shouldNotifyNavigator(context) ? 2 : 1;
+    if (emailErrors.length >= expectedEmails && process.env.EMAIL_USER) {
+      throw new Error(`All email sends failed: ${emailErrors.join('; ')}`);
+    }
 
-/**
- * Send note shared notification using strategy pattern
- * 
- * OPTIMIZATION: Uses pre-populated note.navigator if available
- */
-const sendNoteSharedNotification = async (note, student) => {
-  try {
-    // Use populated data if available, otherwise fetch
-    const navigator = note.navigator?.email 
-      ? note.navigator 
-      : await User.findById(note.navigator);
+    return { success: true, emailErrors: emailErrors.length > 0 ? emailErrors : undefined };
+  }
+
+  /**
+   * Direct note notification - throws on failure for job-queue retry.
+   */
+  async sendNoteSharedNotificationDirect(note, student) {
+    const navigator = await this._resolveUser(note.navigator);
 
     if (!navigator) {
-      console.error('Could not find navigator for notification');
-      return;
+      throw new Error('Could not find navigator for notification');
     }
 
-    // Get template using strategy pattern
-    const template = getTemplate('note_shared');
+    const template = this.resolveTemplate('note_shared');
     const context = { note, student, navigator };
 
-    const emailSubject = template.getEmailSubject(context);
-    const emailBody = template.getEmailBody(context);
-    const notificationTitle = template.getNotificationTitle(context);
-    const notificationMessage = template.getNotificationMessage(context);
+    const emailSubject = template.email.subject(context);
+    const emailBody = template.email.body(context);
+    const notificationTitle = template.inApp.title(context);
+    const notificationMessage = template.inApp.message(context);
 
-    // Send email if preferences allow
     if (student.notificationPreferences?.email !== false) {
-      try {
-        await sendEmail(student.email, emailSubject, emailBody);
-        note.emailSent = true;
-        note.emailSentAt = new Date();
-        await note.save();
-      } catch (emailError) {
-        console.error('Failed to send note email:', emailError);
-      }
+      await this.sendEmailDirect(student.email, emailSubject, emailBody);
+      note.emailSent = true;
+      note.emailSentAt = new Date();
+      await note.save();
     }
 
-    // Create in-app notification
-    await createNotification({
+    await this.createNotification({
       recipientId: student._id,
       senderId: navigator._id,
       type: 'note_shared',
@@ -269,11 +392,21 @@ const sendNoteSharedNotification = async (note, student) => {
       noteId: note._id
     });
 
-  } catch (error) {
-    console.error('Error sending note notification:', error);
-    throw error;
+    return { success: true };
   }
-};
+}
+
+// Default singleton instance used by the backward-compatible function exports
+const notificationService = new NotificationService();
+
+// Backward-compatible function API (delegates to the default service instance)
+const sendEmail = (to, subject, html, text) => notificationService.sendEmail(to, subject, html, text);
+const createNotification = (data) => notificationService.createNotification(data);
+const sendMeetingNotification = (meeting, type) => notificationService.sendMeetingNotification(meeting, type);
+const sendNoteSharedNotification = (note, student) => notificationService.sendNoteSharedNotification(note, student);
+const sendEmailDirect = (to, subject, html, text) => notificationService.sendEmailDirect(to, subject, html, text);
+const sendMeetingNotificationDirect = (meeting, type) => notificationService.sendMeetingNotificationDirect(meeting, type);
+const sendNoteSharedNotificationDirect = (note, student) => notificationService.sendNoteSharedNotificationDirect(note, student);
 
 module.exports = {
   sendEmail,
@@ -284,131 +417,9 @@ module.exports = {
   sendEmailDirect,
   sendMeetingNotificationDirect,
   sendNoteSharedNotificationDirect,
+  // Class + default instance for dependency injection / testing
+  NotificationService,
+  notificationService,
   // Export EmailSender class for testing/DI
   EmailSender
 };
-
-// Direct email send that throws errors for job queue retry
-async function sendEmailDirect(to, subject, html, text) {
-  return emailSender.send(to, subject, html, text);
-}
-
-/**
- * Direct meeting notification using strategy pattern (throws errors for job queue retry)
- */
-async function sendMeetingNotificationDirect(meeting, type) {
-  const student = await User.findById(meeting.student);
-  const navigator = await User.findById(meeting.navigator);
-
-  if (!student || !navigator) {
-    throw new Error('Could not find student or navigator for notification');
-  }
-
-  // Get template using strategy pattern
-  const template = getTemplate(type);
-  const context = { meeting, student, navigator };
-
-  const emailSubject = template.getEmailSubject(context);
-  const emailBody = template.getEmailBody(context);
-  const notificationTitle = template.getNotificationTitle(context);
-  const notificationMessage = template.getNotificationMessage(context);
-
-  const notificationType = `meeting_${type}`;
-  const emailErrors = [];
-
-  // Send to student - collect errors but continue
-  if (student.notificationPreferences?.email !== false) {
-    try {
-      await sendEmailDirect(student.email, emailSubject, emailBody);
-    } catch (emailError) {
-      emailErrors.push(`Student email: ${emailError.message}`);
-    }
-  }
-
-  // Create in-app notification for student
-  await createNotification({
-    recipientId: student._id,
-    senderId: navigator._id,
-    type: notificationType,
-    title: notificationTitle,
-    message: notificationMessage,
-    meetingId: meeting._id
-  });
-
-  // Send to navigator if template allows
-  if (template.shouldNotifyNavigator(context)) {
-    if (navigator.notificationPreferences?.email !== false) {
-      try {
-        await sendEmailDirect(navigator.email, emailSubject, emailBody);
-      } catch (emailError) {
-        emailErrors.push(`Navigator email: ${emailError.message}`);
-      }
-    }
-
-    await createNotification({
-      recipientId: navigator._id,
-      senderId: student._id,
-      type: notificationType,
-      title: notificationTitle,
-      message: notificationMessage,
-      meetingId: meeting._id
-    });
-  }
-
-  // Update meeting notification history
-  meeting.notificationsSent = meeting.notificationsSent || [];
-  meeting.notificationsSent.push({
-    type,
-    sentAt: new Date(),
-    sentTo: [student._id, navigator._id]
-  });
-  await meeting.save();
-
-  // If all emails failed, throw for retry
-  const expectedEmails = template.shouldNotifyNavigator(context) ? 2 : 1;
-  if (emailErrors.length >= expectedEmails && process.env.EMAIL_USER) {
-    throw new Error(`All email sends failed: ${emailErrors.join('; ')}`);
-  }
-
-  return { success: true, emailErrors: emailErrors.length > 0 ? emailErrors : undefined };
-}
-
-/**
- * Direct note notification using strategy pattern (throws errors for job queue retry)
- */
-async function sendNoteSharedNotificationDirect(note, student) {
-  const navigator = await User.findById(note.navigator);
-
-  if (!navigator) {
-    throw new Error('Could not find navigator for notification');
-  }
-
-  // Get template using strategy pattern
-  const template = getTemplate('note_shared');
-  const context = { note, student, navigator };
-
-  const emailSubject = template.getEmailSubject(context);
-  const emailBody = template.getEmailBody(context);
-  const notificationTitle = template.getNotificationTitle(context);
-  const notificationMessage = template.getNotificationMessage(context);
-
-  // Send email - throw if fails
-  if (student.notificationPreferences?.email !== false) {
-    await sendEmailDirect(student.email, emailSubject, emailBody);
-    note.emailSent = true;
-    note.emailSentAt = new Date();
-    await note.save();
-  }
-
-  // Create in-app notification
-  await createNotification({
-    recipientId: student._id,
-    senderId: navigator._id,
-    type: 'note_shared',
-    title: notificationTitle,
-    message: notificationMessage,
-    noteId: note._id
-  });
-
-  return { success: true };
-}

@@ -72,6 +72,14 @@ class ReportRepository extends BaseRepository {
     await report.save();
     return report;
   }
+
+  /**
+   * Compute individual progress report data via the model aggregation.
+   * Keeps the aggregation detail behind the repository abstraction.
+   */
+  async generateIndividualReportData(navigatorId, studentId, startDate, endDate) {
+    return this.model.generateIndividualReport(navigatorId, studentId, startDate, endDate);
+  }
 }
 
 // Export singleton instance and class for DI

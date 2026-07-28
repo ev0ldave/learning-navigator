@@ -1,8 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { body, validationResult, query } = require('express-validator');
-const Meeting = require('../models/Meeting');
-const SchoolQuarter = require('../models/SchoolQuarter');
 const { meetingRepository } = require('../repositories');
 const meetingService = require('../services/meetingService');
 const { MeetingValidationError } = require('../services/meetingService');
@@ -177,9 +175,16 @@ router.post('/',
         // Send notifications
         await queueMeetingNotification(meeting._id.toString(), 'scheduled');
         
-        // If recurring, create future meetings
+        // If recurring, create future meetings and their calendar events
         if (req.body.isRecurring && recurrenceEndDate) {
-          await createRecurringMeetings(meeting, recurrenceEndDate);
+          const recurringMeetings = await meetingService.generateRecurringMeetings(meeting, recurrenceEndDate);
+          for (const child of recurringMeetings) {
+            try {
+              await queueCalendarCreate(child._id.toString());
+            } catch (err) {
+              console.error('Error creating calendar event for recurring meeting:', child._id, err);
+            }
+          }
         }
       }
       
@@ -447,132 +452,56 @@ router.put('/series/:id/recurrence',
         });
       }
 
-      const { frequency, endDate } = req.body;
+      const { frequency } = req.body;
 
-      // Find the meeting
-      const meeting = await Meeting.findById(req.params.id);
+      // Delegate DB/business logic to the service
+      const result = await meetingService.updateRecurrence(req.params.id, req.body, req.user);
 
-      if (!meeting) {
-        return res.status(404).json({
-          success: false,
-          message: 'Meeting not found'
-        });
-      }
-
-      if (!meeting.isRecurring) {
-        return res.status(400).json({
-          success: false,
-          message: 'This meeting is not part of a recurring series'
-        });
-      }
-
-      // Check permissions - only navigators and admins can update recurrence
-      const canUpdate = 
-        req.user.role === 'administrator' ||
-        meeting.navigator.toString() === req.user._id.toString();
-
-      if (!canUpdate) {
-        return res.status(403).json({
-          success: false,
-          message: 'You do not have permission to update this meeting series'
-        });
-      }
-
-      // Determine the parent meeting
-      const parentId = meeting.recurrence?.parentMeetingId || meeting._id;
-      const parentMeeting = await Meeting.findById(parentId);
-
-      if (!parentMeeting) {
-        return res.status(404).json({
-          success: false,
-          message: 'Parent meeting not found'
-        });
-      }
-
-      // Get the old frequency for comparison
-      const oldFrequency = parentMeeting.recurrence?.frequency || 'weekly';
-      
-      // If frequency hasn't changed and no new end date, nothing to do
-      if (oldFrequency === frequency && !endDate) {
+      if (result.noChanges) {
         return res.json({
           success: true,
           message: 'No changes made',
-          meeting: parentMeeting
+          meeting: result.parentMeeting
         });
       }
 
-      // Find all future child meetings (scheduled and after today)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const futureMeetings = await Meeting.find({
-        'recurrence.parentMeetingId': parentId,
-        startTime: { $gte: today },
-        status: { $in: ['scheduled', 'confirmed'] }
-      });
-
-      // Delete calendar events for future meetings
-      for (const futureMeeting of futureMeetings) {
+      // Reconcile calendar side effects for removed future meetings
+      // Pass the full document so its calendar event IDs are available for deletion
+      for (const removed of result.deletedMeetings) {
         try {
-          await queueCalendarDelete(futureMeeting._id.toString());
+          await queueCalendarDelete(removed);
         } catch (err) {
-          console.error('Error deleting calendar event for meeting:', futureMeeting._id, err);
+          console.error('Error deleting calendar event for meeting:', removed._id, err);
         }
       }
 
-      // Delete future child meetings from database
-      const deleteResult = await Meeting.deleteMany({
-        'recurrence.parentMeetingId': parentId,
-        startTime: { $gte: today },
-        status: { $in: ['scheduled', 'confirmed'] }
-      });
-
-      console.log(`Deleted ${deleteResult.deletedCount} future meetings for frequency update`);
-
-      // Calculate new end date (capped by quarter)
-      let recurrenceEndDate = endDate ? new Date(endDate) : parentMeeting.recurrence?.endDate;
-      if (recurrenceEndDate) {
-        recurrenceEndDate = await SchoolQuarter.getRecurrenceEndDate(recurrenceEndDate);
-      }
-
-      // Update the parent meeting's recurrence settings
-      parentMeeting.recurrence = {
-        ...parentMeeting.recurrence,
-        frequency: frequency,
-        endDate: recurrenceEndDate
-      };
-      await parentMeeting.save();
-
-      // Recreate future meetings with new frequency if we have an end date
-      let newMeetings = [];
-      if (recurrenceEndDate) {
-        newMeetings = await createRecurringMeetings(parentMeeting, recurrenceEndDate);
-
-        // Create calendar events for new meetings
-        for (const newMeeting of newMeetings) {
-          try {
-            await queueCalendarCreate(newMeeting._id.toString());
-          } catch (err) {
-            console.error('Error creating calendar event for meeting:', newMeeting._id, err);
-          }
+      // Create calendar events for the newly generated meetings
+      for (const newMeeting of result.newMeetings) {
+        try {
+          await queueCalendarCreate(newMeeting._id.toString());
+        } catch (err) {
+          console.error('Error creating calendar event for meeting:', newMeeting._id, err);
         }
       }
 
       // Update the parent's calendar event if it exists
       try {
-        await queueCalendarUpdate(parentId.toString());
+        await queueCalendarUpdate(result.parentId.toString());
       } catch (err) {
         console.error('Error updating parent calendar event:', err);
       }
 
       res.json({
         success: true,
-        message: `Recurrence updated to ${frequency}. ${deleteResult.deletedCount} future meetings removed, ${newMeetings.length} new meetings created.`,
-        deletedCount: deleteResult.deletedCount,
-        createdCount: newMeetings.length,
-        meeting: parentMeeting
+        message: `Recurrence updated to ${frequency}. ${result.deletedCount} future meetings removed, ${result.newMeetings.length} new meetings created.`,
+        deletedCount: result.deletedCount,
+        createdCount: result.newMeetings.length,
+        meeting: result.parentMeeting
       });
     } catch (error) {
+      if (error instanceof MeetingValidationError) {
+        return handleServiceError(error, res);
+      }
       console.error('Update recurrence error:', error);
       res.status(500).json({
         success: false,
@@ -581,49 +510,5 @@ router.put('/series/:id/recurrence',
     }
   }
 );
-
-// Helper function to create recurring meetings
-async function createRecurringMeetings(parentMeeting, endDate) {
-  const meetings = [];
-  const frequency = parentMeeting.recurrence?.frequency || 'weekly';
-  
-  let currentDate = new Date(parentMeeting.startTime);
-  const duration = parentMeeting.endTime - parentMeeting.startTime;
-  
-  const addDays = frequency === 'weekly' ? 7 : frequency === 'biweekly' ? 14 : frequency === 'triweekly' ? 21 : 30;
-  
-  while (currentDate <= endDate) {
-    currentDate = new Date(currentDate.getTime() + addDays * 24 * 60 * 60 * 1000);
-    
-    if (currentDate > endDate) break;
-    
-    const newMeeting = new Meeting({
-      student: parentMeeting.student,
-      navigator: parentMeeting.navigator,
-      title: parentMeeting.title,
-      description: parentMeeting.description,
-      startTime: currentDate,
-      endTime: new Date(currentDate.getTime() + duration),
-      type: 'recurring',
-      isRecurring: true,
-      recurrence: {
-        ...parentMeeting.recurrence,
-        parentMeetingId: parentMeeting._id
-      },
-      location: parentMeeting.location,
-      meetingLink: parentMeeting.meetingLink,
-      phoneNumber: parentMeeting.phoneNumber,
-      createdBy: parentMeeting.createdBy
-    });
-    
-    meetings.push(newMeeting);
-  }
-  
-  if (meetings.length > 0) {
-    await Meeting.insertMany(meetings);
-  }
-  
-  return meetings;
-}
 
 module.exports = router;

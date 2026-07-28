@@ -2,12 +2,10 @@
  * Report Service - Single Responsibility: Report business logic
  * Extracts validation and business rules from routes
  */
-const { reportRepository } = require('../repositories');
-const { userRepository } = require('../repositories');
-const { meetingRepository } = require('../repositories');
-const Report = require('../models/Report');
-const Meeting = require('../models/Meeting');
-const Note = require('../models/Note');
+const { reportRepository, userRepository, meetingRepository, noteRepository } = require('../repositories');
+const { metricsCalculator } = require('./reporting/MetricRegistry');
+const { groupingEngine } = require('./reporting/GroupingRegistry');
+const { displayFormatter } = require('./reporting/DisplayFormatter');
 
 /**
  * Validation error class for business rule violations
@@ -22,12 +20,28 @@ class ReportValidationError extends Error {
 }
 
 /**
- * Report Service class - encapsulates all report-related business logic
+ * Report Service class - orchestrates report generation.
+ * Depends on repository abstractions and dedicated metric/grouping/formatting
+ * collaborators rather than concrete Mongoose models (Dependency Inversion),
+ * and no longer computes metrics or formats labels itself (Single Responsibility).
  */
 class ReportService {
-  constructor(reportRepo = reportRepository, userRepo = userRepository) {
+  constructor({
+    reportRepo = reportRepository,
+    userRepo = userRepository,
+    meetingRepo = meetingRepository,
+    noteRepo = noteRepository,
+    metrics = metricsCalculator,
+    grouping = groupingEngine,
+    formatter = displayFormatter
+  } = {}) {
     this.reportRepo = reportRepo;
     this.userRepo = userRepo;
+    this.meetingRepo = meetingRepo;
+    this.noteRepo = noteRepo;
+    this.metrics = metrics;
+    this.grouping = grouping;
+    this.formatter = formatter;
   }
 
   /**
@@ -76,8 +90,8 @@ class ReportService {
 
     const student = await this.validateStudent(studentId);
 
-    // Generate report data using model method
-    const data = await Report.generateIndividualReport(
+    // Generate report data via repository (aggregation detail stays in the repo)
+    const data = await this.reportRepo.generateIndividualReportData(
       user._id,
       studentId,
       new Date(startDate),
@@ -105,18 +119,11 @@ class ReportService {
   async generateGroupReport(reportData, user) {
     const { studentIds, startDate, endDate, title } = reportData;
 
-    // Build query - admins can see all meetings, navigators only their own
-    const meetingQuery = {
-      student: { $in: studentIds },
-      startTime: { $gte: new Date(startDate), $lte: new Date(endDate) }
-    };
-
-    if (user.role !== 'administrator') {
-      meetingQuery.navigator = user._id;
-    }
-
-    const meetings = await Meeting.find(meetingQuery)
-      .populate('student', 'firstName lastName');
+    // Fetch meetings via repository (scoping by role handled inside)
+    const meetings = await this.meetingRepo.findForGroupReport(
+      { studentIds, startDate, endDate },
+      user
+    );
 
     // Calculate group statistics
     const totalSessions = meetings.length;
@@ -191,25 +198,13 @@ class ReportService {
   async generateSessionHistoryReport(reportData, user) {
     const { startDate, endDate, studentId, title } = reportData;
 
-    const meetingQuery = {
-      navigator: user._id,
-      startTime: { $gte: new Date(startDate), $lte: new Date(endDate) }
-    };
-
-    if (studentId) {
-      meetingQuery.student = studentId;
-    }
-
-    const meetings = await Meeting.find(meetingQuery)
-      .sort({ startTime: -1 })
-      .populate('student', 'firstName lastName email')
-      .populate('notes');
+    const meetings = await this.meetingRepo.findForSessionHistory(
+      { startDate, endDate, studentId },
+      user
+    );
 
     const meetingIds = meetings.map(m => m._id);
-    const notes = await Note.find({
-      meeting: { $in: meetingIds },
-      navigator: user._id
-    });
+    const notes = await this.noteRepo.findForSessionHistory(meetingIds, user._id);
 
     const report = await this.reportRepo.create({
       generatedBy: user._id,
@@ -316,50 +311,16 @@ class ReportService {
       filters = {}
     } = config;
 
-    // Build base query
-    const meetingQuery = {
-      startTime: { $gte: new Date(startDate), $lte: new Date(endDate) }
-    };
-
-    // Scope to navigator's students unless admin
-    if (user.role !== 'administrator') {
-      meetingQuery.navigator = user._id;
-    }
-
-    // Filter by students if specified
-    if (studentIds.length > 0) {
-      meetingQuery.student = { $in: studentIds };
-    }
-
-    // Apply status filter
-    if (filters.status?.length > 0) {
-      meetingQuery.status = { $in: filters.status };
-    }
-
-    // Apply location filter
-    if (filters.location?.length > 0) {
-      meetingQuery.location = { $in: filters.location };
-    }
-
-    // Fetch meetings with necessary data
-    const meetings = await Meeting.find(meetingQuery)
-      .populate('student', 'firstName lastName email')
-      .populate('navigator', 'firstName lastName')
-      .sort({ startTime: 1 });
+    // Fetch meetings via repository (role scoping + filters handled inside)
+    const meetings = await this.meetingRepo.findForCustomReport(
+      { startDate, endDate, studentIds, filters },
+      user
+    );
 
     // Fetch notes if needed
     let notes = [];
     if (metrics.includes('noteCount') || metrics.includes('sharedNotes') || includeDetails) {
-      const noteQuery = {
-        createdAt: { $gte: new Date(startDate), $lte: new Date(endDate) }
-      };
-      if (user.role !== 'administrator') {
-        noteQuery.navigator = user._id;
-      }
-      if (studentIds.length > 0) {
-        noteQuery.student = { $in: studentIds };
-      }
-      notes = await Note.find(noteQuery);
+      notes = await this.noteRepo.findForCustomReport({ startDate, endDate, studentIds }, user);
     }
 
     // Calculate selected metrics
@@ -415,209 +376,17 @@ class ReportService {
   }
 
   /**
-   * Calculate selected metrics from meeting data
+   * Calculate selected metrics from meeting data (delegates to MetricsCalculator).
    */
   _calculateMetrics(meetings, notes, selectedMetrics) {
-    const result = {};
-    const totalSessions = meetings.length;
-    const completedSessions = meetings.filter(m => m.status === 'completed').length;
-    const cancelledSessions = meetings.filter(m => m.status === 'cancelled').length;
-    const noShowSessions = meetings.filter(m => m.status === 'no_show').length;
-    const totalDuration = meetings.reduce((sum, m) => sum + (m.duration || 0), 0);
-
-    // Session metrics
-    if (selectedMetrics.includes('totalSessions')) {
-      result.totalSessions = totalSessions;
-    }
-    if (selectedMetrics.includes('completedSessions')) {
-      result.completedSessions = completedSessions;
-    }
-    if (selectedMetrics.includes('cancelledSessions')) {
-      result.cancelledSessions = cancelledSessions;
-    }
-    if (selectedMetrics.includes('noShowSessions')) {
-      result.noShowSessions = noShowSessions;
-    }
-
-    // Performance metrics
-    if (selectedMetrics.includes('attendanceRate')) {
-      result.attendanceRate = totalSessions > 0 
-        ? Math.round((completedSessions / totalSessions) * 100) 
-        : 0;
-    }
-
-    // Time metrics
-    if (selectedMetrics.includes('totalDuration')) {
-      result.totalDuration = totalDuration;
-    }
-    if (selectedMetrics.includes('averageDuration')) {
-      result.averageDuration = totalSessions > 0 
-        ? Math.round(totalDuration / totalSessions) 
-        : 0;
-    }
-
-    // Engagement metrics
-    if (selectedMetrics.includes('noteCount')) {
-      result.noteCount = notes.length;
-    }
-    if (selectedMetrics.includes('sharedNotes')) {
-      result.sharedNotes = notes.filter(n => n.sharedWithStudent).length;
-    }
-
-    // Breakdown metrics
-    if (selectedMetrics.includes('meetingTypes')) {
-      result.meetingTypes = this._countByField(meetings, 'location');
-    }
-    if (selectedMetrics.includes('statusBreakdown')) {
-      result.statusBreakdown = this._countByField(meetings, 'status');
-    }
-
-    // Trend metrics
-    if (selectedMetrics.includes('weeklyTrend')) {
-      result.weeklyTrend = this._calculateTrend(meetings, 'week');
-    }
-    if (selectedMetrics.includes('monthlyTrend')) {
-      result.monthlyTrend = this._calculateTrend(meetings, 'month');
-    }
-
-    return result;
+    return this.metrics.calculate(meetings, notes, selectedMetrics);
   }
 
   /**
-   * Group data by specified dimension
+   * Group data by the specified dimension (delegates to the grouping engine).
    */
   _groupData(meetings, notes, groupBy, metrics) {
-    const groups = {};
-
-    meetings.forEach(meeting => {
-      let key;
-      let label;
-
-      switch (groupBy) {
-        case 'student':
-          key = meeting.student?._id?.toString() || 'unknown';
-          label = meeting.student 
-            ? `${meeting.student.firstName} ${meeting.student.lastName}` 
-            : 'Unknown Student';
-          break;
-        case 'week':
-          const weekStart = new Date(meeting.startTime);
-          weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-          key = weekStart.toISOString().split('T')[0];
-          label = `Week of ${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-          break;
-        case 'month':
-          key = `${meeting.startTime.getFullYear()}-${String(meeting.startTime.getMonth() + 1).padStart(2, '0')}`;
-          label = meeting.startTime.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-          break;
-        case 'status':
-          key = meeting.status || 'unknown';
-          label = this._formatStatus(meeting.status);
-          break;
-        case 'location':
-          key = meeting.location || 'unknown';
-          label = this._formatLocation(meeting.location);
-          break;
-        default:
-          key = 'all';
-          label = 'All';
-      }
-
-      if (!groups[key]) {
-        groups[key] = { key, label, meetings: [], notes: [] };
-      }
-      groups[key].meetings.push(meeting);
-    });
-
-    // Add notes to groups if grouping by student
-    if (groupBy === 'student') {
-      notes.forEach(note => {
-        const key = note.student?.toString() || 'unknown';
-        if (groups[key]) {
-          groups[key].notes.push(note);
-        }
-      });
-    }
-
-    // Calculate metrics for each group
-    return Object.values(groups).map(group => ({
-      key: group.key,
-      label: group.label,
-      count: group.meetings.length,
-      metrics: this._calculateMetrics(group.meetings, group.notes, metrics)
-    }));
-  }
-
-  /**
-   * Count meetings by field value
-   */
-  _countByField(meetings, field) {
-    const counts = {};
-    meetings.forEach(m => {
-      const value = m[field] || 'unknown';
-      counts[value] = (counts[value] || 0) + 1;
-    });
-    return Object.entries(counts).map(([key, count]) => ({
-      key,
-      label: field === 'status' ? this._formatStatus(key) : this._formatLocation(key),
-      count,
-      percentage: meetings.length > 0 ? Math.round((count / meetings.length) * 100) : 0
-    }));
-  }
-
-  /**
-   * Calculate trend data
-   */
-  _calculateTrend(meetings, period) {
-    const buckets = {};
-    
-    meetings.forEach(m => {
-      let key;
-      if (period === 'week') {
-        const weekStart = new Date(m.startTime);
-        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-        key = weekStart.toISOString().split('T')[0];
-      } else {
-        key = `${m.startTime.getFullYear()}-${String(m.startTime.getMonth() + 1).padStart(2, '0')}`;
-      }
-      
-      if (!buckets[key]) {
-        buckets[key] = { total: 0, completed: 0, cancelled: 0, noShow: 0 };
-      }
-      buckets[key].total++;
-      if (m.status === 'completed') buckets[key].completed++;
-      if (m.status === 'cancelled') buckets[key].cancelled++;
-      if (m.status === 'no_show') buckets[key].noShow++;
-    });
-
-    return Object.entries(buckets)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, data]) => ({ date, ...data }));
-  }
-
-  /**
-   * Format status for display
-   */
-  _formatStatus(status) {
-    const labels = {
-      scheduled: 'Scheduled',
-      completed: 'Completed',
-      cancelled: 'Cancelled',
-      no_show: 'No Show'
-    };
-    return labels[status] || status;
-  }
-
-  /**
-   * Format location for display
-   */
-  _formatLocation(location) {
-    const labels = {
-      virtual: 'Virtual',
-      in_person: 'In Person',
-      phone: 'Phone'
-    };
-    return labels[location] || location;
+    return this.grouping.group(meetings, notes, groupBy, metrics);
   }
 
   /**
@@ -640,14 +409,7 @@ class ReportService {
 
     // Add grouping
     if (groupBy !== 'none') {
-      const groupLabels = {
-        student: 'by Student',
-        week: 'Weekly',
-        month: 'Monthly',
-        status: 'by Status',
-        location: 'by Location'
-      };
-      parts.push(groupLabels[groupBy] || '');
+      parts.push(this.grouping.titleLabel(groupBy));
     }
 
     parts.push('Report');

@@ -45,6 +45,22 @@ class QuarterRepository extends BaseRepository {
     await quarter.save(); // Pre-save hook deactivates others
     return quarter;
   }
+
+  /**
+   * Determine whether a date falls within the active quarter.
+   * Abstracts the SchoolQuarter model static so services depend on the
+   * repository, not the concrete Mongoose model (Dependency Inversion).
+   */
+  async isDateInActiveQuarter(date) {
+    return this.model.isDateInActiveQuarter(date);
+  }
+
+  /**
+   * Resolve the effective recurrence end date, capped by the active quarter.
+   */
+  async getRecurrenceEndDate(requestedEndDate) {
+    return this.model.getRecurrenceEndDate(requestedEndDate);
+  }
 }
 
 // Export singleton instance and class for DI

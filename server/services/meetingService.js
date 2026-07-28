@@ -2,8 +2,7 @@
  * Meeting Service - Single Responsibility: Meeting business logic
  * Extracts validation, conflict checking, and business rules from routes
  */
-const { meetingRepository, userRepository, availabilityRepository } = require('../repositories');
-const SchoolQuarter = require('../models/SchoolQuarter');
+const { meetingRepository, userRepository, availabilityRepository, quarterRepository } = require('../repositories');
 const { getPacificDayOfWeek, getPacificComponents } = require('../utils/timezone');
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -27,12 +26,14 @@ class MeetingService {
   constructor(
     meetingRepo = meetingRepository,
     userRepo = userRepository,
-    availabilityRepo = availabilityRepository
+    availabilityRepo = availabilityRepository,
+    quarterRepo = quarterRepository
   ) {
     // Dependency injection for testability
     this.meetingRepo = meetingRepo;
     this.userRepo = userRepo;
     this.availabilityRepo = availabilityRepo;
+    this.quarterRepo = quarterRepo;
   }
 
   /**
@@ -66,7 +67,7 @@ class MeetingService {
    * Validate meeting is within active school quarter
    */
   async validateQuarter(meetingStart) {
-    const quarterCheck = await SchoolQuarter.isDateInActiveQuarter(meetingStart);
+    const quarterCheck = await this.quarterRepo.isDateInActiveQuarter(meetingStart);
     if (!quarterCheck.valid && !quarterCheck.noQuarterSet) {
       throw new MeetingValidationError(quarterCheck.message, 400, {
         quarterInfo: {
@@ -214,14 +215,14 @@ class MeetingService {
     if (userRole === 'student') {
       // Students: force weekly until quarter end
       frequency = 'weekly';
-      endDate = await SchoolQuarter.getRecurrenceEndDate(null);
+      endDate = await this.quarterRepo.getRecurrenceEndDate(null);
     } else {
       // Navigators/Admins: use provided values, capped by quarter
       frequency = recurrence?.frequency || 'weekly';
       if (recurrence?.endDate) {
-        endDate = await SchoolQuarter.getRecurrenceEndDate(new Date(recurrence.endDate));
+        endDate = await this.quarterRepo.getRecurrenceEndDate(new Date(recurrence.endDate));
       } else {
-        endDate = await SchoolQuarter.getRecurrenceEndDate(null);
+        endDate = await this.quarterRepo.getRecurrenceEndDate(null);
       }
     }
 
@@ -463,6 +464,133 @@ class MeetingService {
     await this.meetingRepo.cancelMeetings(meetingIds, user._id, reason || 'Recurring series deleted');
 
     return meetingsToDelete;
+  }
+
+  /**
+   * Generate and persist the recurring child meetings for a series.
+   * Business rule (date/frequency math) lives here; persistence is delegated
+   * to the repository. Returns the created child meeting documents.
+   */
+  async generateRecurringMeetings(parentMeeting, endDate) {
+    const frequency = parentMeeting.recurrence?.frequency || 'weekly';
+    const duration = parentMeeting.endTime - parentMeeting.startTime;
+    const addDays = frequency === 'weekly' ? 7
+      : frequency === 'biweekly' ? 14
+      : frequency === 'triweekly' ? 21
+      : 30;
+
+    let currentDate = new Date(parentMeeting.startTime);
+    const meetingsData = [];
+
+    while (currentDate <= endDate) {
+      currentDate = new Date(currentDate.getTime() + addDays * 24 * 60 * 60 * 1000);
+
+      if (currentDate > endDate) break;
+
+      meetingsData.push({
+        student: parentMeeting.student,
+        navigator: parentMeeting.navigator,
+        title: parentMeeting.title,
+        description: parentMeeting.description,
+        startTime: currentDate,
+        endTime: new Date(currentDate.getTime() + duration),
+        type: 'recurring',
+        isRecurring: true,
+        recurrence: {
+          ...parentMeeting.recurrence,
+          parentMeetingId: parentMeeting._id
+        },
+        location: parentMeeting.location,
+        meetingLink: parentMeeting.meetingLink,
+        phoneNumber: parentMeeting.phoneNumber,
+        createdBy: parentMeeting.createdBy
+      });
+    }
+
+    if (meetingsData.length === 0) return [];
+    return this.meetingRepo.createMany(meetingsData);
+  }
+
+  /**
+   * Update the recurrence frequency/end date for a series.
+   * Removes future children, updates the parent, and regenerates the series.
+   * Returns data the caller needs to reconcile external side effects
+   * (calendar events) without exposing persistence details.
+   */
+  async updateRecurrence(meetingId, { frequency, endDate }, user) {
+    const meeting = await this.meetingRepo.findById(meetingId);
+    if (!meeting) {
+      throw new MeetingValidationError('Meeting not found', 404);
+    }
+
+    if (!meeting.isRecurring) {
+      throw new MeetingValidationError('This meeting is not part of a recurring series');
+    }
+
+    // Only navigators and admins can update recurrence
+    const canUpdate =
+      user.role === 'administrator' ||
+      meeting.navigator.toString() === user._id.toString();
+
+    if (!canUpdate) {
+      throw new MeetingValidationError('You do not have permission to update this meeting series', 403);
+    }
+
+    const parentId = meeting.recurrence?.parentMeetingId || meeting._id;
+    const parentMeeting = await this.meetingRepo.findById(parentId);
+    if (!parentMeeting) {
+      throw new MeetingValidationError('Parent meeting not found', 404);
+    }
+
+    const oldFrequency = parentMeeting.recurrence?.frequency || 'weekly';
+
+    // If frequency hasn't changed and no new end date, nothing to do
+    if (oldFrequency === frequency && !endDate) {
+      return {
+        noChanges: true,
+        parentMeeting,
+        parentId,
+        deletedMeetings: [],
+        deletedCount: 0,
+        newMeetings: []
+      };
+    }
+
+    // Find all future child meetings (scheduled/confirmed and after today)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const deletedMeetings = await this.meetingRepo.findFutureSeriesChildren(parentId, today);
+    const deleteResult = await this.meetingRepo.deleteFutureSeriesChildren(parentId, today);
+
+    // Calculate new end date (capped by quarter)
+    let recurrenceEndDate = endDate ? new Date(endDate) : parentMeeting.recurrence?.endDate;
+    if (recurrenceEndDate) {
+      recurrenceEndDate = await this.quarterRepo.getRecurrenceEndDate(recurrenceEndDate);
+    }
+
+    // Update the parent meeting's recurrence settings
+    parentMeeting.recurrence = {
+      ...parentMeeting.recurrence,
+      frequency,
+      endDate: recurrenceEndDate
+    };
+    await parentMeeting.save();
+
+    // Recreate future meetings with new frequency if we have an end date
+    let newMeetings = [];
+    if (recurrenceEndDate) {
+      newMeetings = await this.generateRecurringMeetings(parentMeeting, recurrenceEndDate);
+    }
+
+    return {
+      noChanges: false,
+      parentMeeting,
+      parentId,
+      deletedMeetings,
+      deletedCount: deleteResult.deletedCount,
+      newMeetings
+    };
   }
 
   /**

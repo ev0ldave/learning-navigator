@@ -81,7 +81,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     callbackURL: process.env.GOOGLE_CALLBACK_URL || '/api/auth/google/callback',
     passReqToCallback: true
   },
-  async (req, accessToken, refreshToken, profile, done) => {
+  async (req, accessToken, refreshToken, params, profile, done) => {
     try {
       const email = profile.emails && profile.emails[0] ? profile.emails[0].value : null;
       
@@ -96,6 +96,12 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         });
       }
       
+      // Compute absolute access-token expiry (ms epoch) from expires_in (seconds)
+      // so the OAuth client can refresh proactively before it lapses.
+      const googleTokenExpiry = params && params.expires_in
+        ? Date.now() + params.expires_in * 1000
+        : null;
+
       // Check if user already exists
       let user = await User.findOne({ email: email.toLowerCase() });
       
@@ -104,6 +110,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         user.googleId = profile.id;
         user.googleAccessToken = accessToken;
         user.googleRefreshToken = refreshToken || user.googleRefreshToken;
+        if (googleTokenExpiry) user.googleTokenExpiry = googleTokenExpiry;
         user.lastLogin = new Date();
         await user.save();
         return done(null, user);
@@ -121,6 +128,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         role: role,
         googleAccessToken: accessToken,
         googleRefreshToken: refreshToken,
+        googleTokenExpiry: googleTokenExpiry,
         isActive: true
       });
       

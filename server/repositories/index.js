@@ -3,6 +3,7 @@
  * Exports all repositories for centralized access
  */
 const BaseRepository = require('./BaseRepository');
+const { ReadRepository, WriteRepository } = require('./BaseRepository');
 const meetingRepository = require('./MeetingRepository');
 const userRepository = require('./UserRepository');
 const availabilityRepository = require('./AvailabilityRepository');
@@ -12,6 +13,8 @@ const reportRepository = require('./ReportRepository');
 
 module.exports = {
   BaseRepository,
+  ReadRepository,
+  WriteRepository,
   meetingRepository,
   userRepository,
   availabilityRepository,

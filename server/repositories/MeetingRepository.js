@@ -151,6 +151,106 @@ class MeetingRepository extends BaseRepository {
       }
     );
   }
+
+  /**
+   * Bulk-insert a set of meetings (used for recurring series generation).
+   */
+  async createMany(dataArray) {
+    return this.model.insertMany(dataArray);
+  }
+
+  /**
+   * Find future, still-active children of a recurring series.
+   */
+  async findFutureSeriesChildren(parentId, fromDate) {
+    return this.find({
+      'recurrence.parentMeetingId': parentId,
+      startTime: { $gte: fromDate },
+      status: { $in: ['scheduled', 'confirmed'] }
+    });
+  }
+
+  /**
+   * Delete future, still-active children of a recurring series.
+   */
+  async deleteFutureSeriesChildren(parentId, fromDate) {
+    return this.deleteMany({
+      'recurrence.parentMeetingId': parentId,
+      startTime: { $gte: fromDate },
+      status: { $in: ['scheduled', 'confirmed'] }
+    });
+  }
+
+  /**
+   * Find meetings for a group progress report.
+   * Navigators are scoped to their own meetings; admins see all.
+   */
+  async findForGroupReport({ studentIds, startDate, endDate }, requester) {
+    const query = {
+      student: { $in: studentIds },
+      startTime: { $gte: new Date(startDate), $lte: new Date(endDate) }
+    };
+
+    if (requester.role !== 'administrator') {
+      query.navigator = requester._id;
+    }
+
+    return this.find(query, {
+      populate: [{ path: 'student', select: 'firstName lastName' }]
+    });
+  }
+
+  /**
+   * Find meetings for a navigator's session-history report.
+   */
+  async findForSessionHistory({ startDate, endDate, studentId }, requester) {
+    const query = {
+      navigator: requester._id,
+      startTime: { $gte: new Date(startDate), $lte: new Date(endDate) }
+    };
+
+    if (studentId) {
+      query.student = studentId;
+    }
+
+    return this.find(query, {
+      sort: { startTime: -1 },
+      populate: [
+        { path: 'student', select: 'firstName lastName email' },
+        { path: 'notes' }
+      ]
+    });
+  }
+
+  /**
+   * Find meetings for a custom multi-dimensional report with optional filters.
+   */
+  async findForCustomReport({ startDate, endDate, studentIds = [], filters = {} }, requester) {
+    const query = {
+      startTime: { $gte: new Date(startDate), $lte: new Date(endDate) }
+    };
+
+    if (requester.role !== 'administrator') {
+      query.navigator = requester._id;
+    }
+    if (studentIds.length > 0) {
+      query.student = { $in: studentIds };
+    }
+    if (filters.status?.length > 0) {
+      query.status = { $in: filters.status };
+    }
+    if (filters.location?.length > 0) {
+      query.location = { $in: filters.location };
+    }
+
+    return this.find(query, {
+      sort: { startTime: 1 },
+      populate: [
+        { path: 'student', select: 'firstName lastName email' },
+        { path: 'navigator', select: 'firstName lastName' }
+      ]
+    });
+  }
 }
 
 // Export singleton instance for convenience
