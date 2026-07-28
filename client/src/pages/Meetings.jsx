@@ -28,9 +28,13 @@ import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { meetingsAPI } from '../services/api';
 import BookMeetingDialog from '../components/meetings/BookMeetingDialog';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 
 const Meetings = () => {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { isStudent } = useAuth();
   const [loading, setLoading] = useState(true);
   const [meetings, setMeetings] = useState([]);
@@ -95,12 +99,22 @@ const Meetings = () => {
 
   return (
     <Box>
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h4">Meetings</Typography>
+      <Box
+        sx={{
+          mb: 3,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: { xs: 'stretch', sm: 'center' },
+          flexDirection: { xs: 'column', sm: 'row' },
+          gap: 2
+        }}
+      >
+        <Typography variant={isMobile ? 'h5' : 'h4'}>Meetings</Typography>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => setBookDialogOpen(true)}
+          fullWidth={isMobile}
         >
           {isStudent() ? 'Book Session' : 'Schedule Meeting'}
         </Button>
@@ -115,7 +129,12 @@ const Meetings = () => {
       <Card sx={{ mb: 3 }}>
         <CardContent sx={{ pb: '16px !important' }}>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Tabs value={tab} onChange={(e, v) => setTab(v)}>
+            <Tabs
+              value={tab}
+              onChange={(e, v) => setTab(v)}
+              variant={isMobile ? 'scrollable' : 'standard'}
+              allowScrollButtonsMobile
+            >
               <Tab label="Upcoming" />
               <Tab label="Past" />
               <Tab label="Cancelled" />
@@ -126,6 +145,8 @@ const Meetings = () => {
               placeholder="Search meetings..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              fullWidth={isMobile}
+              sx={{ minWidth: { sm: 260 } }}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -157,7 +178,14 @@ const Meetings = () => {
                 <ListItemButton
                   key={meeting._id}
                   onClick={() => navigate(`/meetings/${meeting._id}`)}
-                  sx={{ borderRadius: 1, mb: 1, bgcolor: 'background.default' }}
+                  sx={{
+                    borderRadius: 1,
+                    mb: 1,
+                    bgcolor: 'background.default',
+                    alignItems: { xs: 'flex-start', sm: 'center' },
+                    flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                    rowGap: { xs: 1, sm: 0 }
+                  }}
                 >
                   <ListItemAvatar>
                     <Avatar
@@ -180,7 +208,15 @@ const Meetings = () => {
                       </>
                     }
                   />
-                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      gap: 1,
+                      alignItems: 'center',
+                      ml: { xs: 7, sm: 0 },
+                      width: { xs: '100%', sm: 'auto' }
+                    }}
+                  >
                     <Chip
                       label={meeting.location}
                       size="small"

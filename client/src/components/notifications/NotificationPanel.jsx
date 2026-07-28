@@ -60,7 +60,11 @@ const NotificationPanel = ({ anchorEl, open, onClose }) => {
       anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       PaperProps={{
-        sx: { width: 360, maxHeight: 480 }
+        sx: {
+          width: { xs: 'calc(100vw - 24px)', sm: 360 },
+          maxWidth: 360,
+          maxHeight: { xs: '70vh', sm: 480 }
+        }
       }}
     >
       <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

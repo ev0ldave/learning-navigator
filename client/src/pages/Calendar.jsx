@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Box, Card, CardContent, Typography, CircularProgress, Alert,
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField,
-  Switch, FormControlLabel, IconButton, Divider
+  Switch, FormControlLabel, IconButton, Divider, useTheme, useMediaQuery
 } from '@mui/material';
 import { Settings as SettingsIcon, Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import FullCalendar from '@fullcalendar/react';
@@ -37,6 +37,8 @@ const DEFAULT_WEEKLY_HOURS = {
 
 const Calendar = () => {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { isNavigator, isAdmin } = useAuth();
   const { showSuccess, showError } = useNotification();
   const [events, setEvents] = useState([]);
@@ -234,9 +236,18 @@ const Calendar = () => {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: { xs: 'stretch', sm: 'center' },
+          flexDirection: { xs: 'column', sm: 'row' },
+          gap: 2,
+          mb: 2
+        }}
+      >
         <Box>
-          <Typography variant="h4" gutterBottom>
+          <Typography variant={isMobile ? 'h5' : 'h4'} gutterBottom>
             Calendar
           </Typography>
           <Typography variant="body2" color="text.secondary">
@@ -249,6 +260,7 @@ const Calendar = () => {
             variant="outlined"
             startIcon={<SettingsIcon />}
             onClick={() => setWeeklyHoursDialogOpen(true)}
+            fullWidth={isMobile}
           >
             Set Working Hours
           </Button>
@@ -262,14 +274,29 @@ const Calendar = () => {
       )}
 
       <Card>
-        <CardContent>
+        <CardContent
+          sx={{
+            px: { xs: 1, sm: 2 },
+            '& .fc .fc-toolbar': {
+              flexWrap: 'wrap',
+              gap: 1
+            },
+            '& .fc .fc-toolbar-title': {
+              fontSize: { xs: '1rem', sm: '1.25rem' }
+            },
+            '& .fc .fc-button': {
+              fontSize: { xs: '0.75rem', sm: '0.875rem' },
+              padding: { xs: '0.25rem 0.4rem', sm: '0.4rem 0.65rem' }
+            }
+          }}
+        >
           <FullCalendar
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-            initialView="dayGridMonth"
+            initialView={isMobile ? 'timeGridDay' : 'dayGridMonth'}
             headerToolbar={{
               left: 'prev,next today',
               center: 'title',
-              right: 'dayGridMonth,timeGridWeek,timeGridDay'
+              right: isMobile ? 'dayGridMonth,timeGridDay' : 'dayGridMonth,timeGridWeek,timeGridDay'
             }}
             events={events}
             dateClick={handleDateClick}
@@ -286,6 +313,7 @@ const Calendar = () => {
             slotMaxTime="22:00:00"
             nowIndicator={true}
             selectable={true}
+            dayMaxEventRows={isMobile ? 2 : true}
           />
         </CardContent>
       </Card>
@@ -313,6 +341,7 @@ const Calendar = () => {
         onClose={() => setWeeklyHoursDialogOpen(false)} 
         maxWidth="md" 
         fullWidth
+        fullScreen={isMobile}
       >
         <DialogTitle>
           Set Working Hours
@@ -354,7 +383,8 @@ const Calendar = () => {
                     key={slotIndex} 
                     sx={{ 
                       display: 'flex', 
-                      alignItems: 'center', 
+                      alignItems: { xs: 'stretch', sm: 'center' }, 
+                      flexDirection: { xs: 'column', sm: 'row' },
                       gap: 2, 
                       ml: 4, 
                       mb: 1 
@@ -367,9 +397,9 @@ const Calendar = () => {
                       value={slot.startTime}
                       onChange={(e) => handleSlotChange(day.key, slotIndex, 'startTime', e.target.value)}
                       InputLabelProps={{ shrink: true }}
-                      sx={{ width: 140 }}
+                      sx={{ width: { xs: '100%', sm: 140 } }}
                     />
-                    <Typography>to</Typography>
+                    <Typography sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}>to</Typography>
                     <TextField
                       type="time"
                       size="small"
@@ -377,7 +407,7 @@ const Calendar = () => {
                       value={slot.endTime}
                       onChange={(e) => handleSlotChange(day.key, slotIndex, 'endTime', e.target.value)}
                       InputLabelProps={{ shrink: true }}
-                      sx={{ width: 140 }}
+                      sx={{ width: { xs: '100%', sm: 140 } }}
                     />
                     {weeklyHours[day.key].slots.length > 1 && (
                       <IconButton 

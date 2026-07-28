@@ -11,13 +11,17 @@ import {
   Alert,
   CircularProgress,
   Tabs,
-  Tab
+  Tab,
+  useTheme,
+  useMediaQuery
 } from '@mui/material';
 import { Google as GoogleIcon } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
 const Login = () => {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [searchParams] = useSearchParams();
   const { isAuthenticated, loginLocal, register } = useAuth();
   const [tab, setTab] = useState(0);
@@ -101,9 +105,9 @@ const Login = () => {
       }}
     >
       <Card sx={{ maxWidth: 450, width: '100%' }}>
-        <CardContent sx={{ p: 4 }}>
+        <CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
           <Box sx={{ textAlign: 'center', mb: 4 }}>
-            <Typography variant="h4" component="h1" gutterBottom fontWeight={600}>
+            <Typography variant={isMobile ? 'h5' : 'h4'} component="h1" gutterBottom fontWeight={600}>
               Learning Navigator
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -226,7 +230,11 @@ const Login = () => {
                 </Box>
               )}
 
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 3, textAlign: 'center' }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mt: 3, textAlign: 'center', wordBreak: 'break-word' }}
+              >
                 Test accounts (dev only):<br />
                 1411andrew@gmail.com | ev0ldave@gmail.com | trlandrew@students.highline.edu
               </Typography>
