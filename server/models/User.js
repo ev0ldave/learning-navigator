@@ -52,6 +52,11 @@ const userSchema = new mongoose.Schema({
     type: String,
     select: false
   },
+  googleTokenExpiry: {
+    // Absolute access-token expiry (ms since epoch) for proactive refresh
+    type: Number,
+    select: false
+  },
   googleCalendarId: {
     type: String
   },

@@ -1,8 +1,18 @@
 /**
- * Base Repository - Abstracts database operations for Dependency Inversion Principle
- * High-level modules depend on this abstraction, not concrete Mongoose models
+ * Repository interfaces - Interface Segregation + Dependency Inversion.
+ *
+ * Consumers depend on the narrowest capability they need:
+ *  - ReadRepository  : query-only access (find/count)
+ *  - WriteRepository : read + mutations (create/update/delete)
+ *
+ * The concrete Mongoose model is never exposed via a getter, so callers cannot
+ * bypass the abstraction.
  */
-class BaseRepository {
+
+/**
+ * ReadRepository - query-only surface.
+ */
+class ReadRepository {
   constructor(model) {
     this.model = model;
   }
@@ -58,7 +68,13 @@ class BaseRepository {
   async count(filter) {
     return this.model.countDocuments(filter);
   }
+}
 
+/**
+ * WriteRepository - read + mutation surface.
+ * Extends ReadRepository so a writer is always a valid reader (Liskov).
+ */
+class WriteRepository extends ReadRepository {
   async create(data) {
     const entity = new this.model(data);
     return entity.save();
@@ -83,13 +99,10 @@ class BaseRepository {
   async deleteMany(filter) {
     return this.model.deleteMany(filter);
   }
-
-  /**
-   * Execute a custom query - for complex queries not covered by base methods
-   */
-  getModel() {
-    return this.model;
-  }
 }
 
-module.exports = BaseRepository;
+// BaseRepository remains the full read+write repository for backward
+// compatibility with existing concrete repositories.
+module.exports = WriteRepository;
+module.exports.ReadRepository = ReadRepository;
+module.exports.WriteRepository = WriteRepository;

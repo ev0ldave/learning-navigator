@@ -50,14 +50,50 @@ class OAuthClientCache {
 // Singleton cache instance
 const oauthClientCache = new OAuthClientCache();
 
-// Initialize OAuth2 client
-const createOAuth2Client = () => {
-  return new google.auth.OAuth2(
+/**
+ * Injectable dependencies (Dependency Inversion Principle).
+ *
+ * The Google SDK client factory and the user/token data source are seams that
+ * can be overridden for testing or an alternate provider. The functions below
+ * depend on these abstractions rather than instantiating googleapis / querying
+ * the User model directly.
+ */
+const defaultCalendarDeps = {
+  createOAuth2Client: () => new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
     process.env.GOOGLE_CALLBACK_URL
-  );
+  ),
+  findUserById: (id) => User.findById(id),
+  findUserWithCalendarTokens: (id) =>
+    User.findById(id).select('+googleAccessToken +googleRefreshToken +googleTokenExpiry')
 };
+
+let calendarDeps = { ...defaultCalendarDeps };
+
+/**
+ * Override calendar dependencies (for tests or alternate providers).
+ */
+const configureCalendarDependencies = (overrides = {}) => {
+  calendarDeps = { ...calendarDeps, ...overrides };
+};
+
+/**
+ * Reset calendar dependencies to their defaults.
+ */
+const resetCalendarDependencies = () => {
+  calendarDeps = { ...defaultCalendarDeps };
+};
+
+/**
+ * Resolve a meeting participant: use the pre-populated document if available,
+ * otherwise fetch via the injected user provider.
+ */
+const resolveUser = (idOrDoc) =>
+  idOrDoc?.email ? idOrDoc : calendarDeps.findUserById(idOrDoc);
+
+// Initialize OAuth2 client via the injectable factory
+const createOAuth2Client = () => calendarDeps.createOAuth2Client();
 
 /**
  * Get authenticated calendar client for a user
@@ -74,7 +110,7 @@ const getCalendarClient = async (userId, userWithTokens = null) => {
     // Fetch user with tokens if not provided
     const user = userWithTokens?.googleAccessToken 
       ? userWithTokens 
-      : await User.findById(userId).select('+googleAccessToken +googleRefreshToken');
+      : await calendarDeps.findUserWithCalendarTokens(userId);
     
     if (!user || !user.googleAccessToken) {
       throw new Error('User has no Google Calendar access');
@@ -83,13 +119,19 @@ const getCalendarClient = async (userId, userWithTokens = null) => {
     const oauth2Client = createOAuth2Client();
     oauth2Client.setCredentials({
       access_token: user.googleAccessToken,
-      refresh_token: user.googleRefreshToken
+      refresh_token: user.googleRefreshToken,
+      // Providing expiry_date lets the client refresh proactively (before the
+      // token lapses) instead of waiting for a 401. Omitted when unknown so
+      // older users still fall back to reactive refresh.
+      expiry_date: user.googleTokenExpiry || undefined
     });
     
-    // Handle token refresh
+    // Persist rotated tokens whenever the client refreshes
     oauth2Client.on('tokens', async (tokens) => {
       if (tokens.access_token) {
         user.googleAccessToken = tokens.access_token;
+        if (tokens.expiry_date) user.googleTokenExpiry = tokens.expiry_date;
+        if (tokens.refresh_token) user.googleRefreshToken = tokens.refresh_token;
         await user.save();
         // Clear cache on token refresh to ensure fresh client
         oauthClientCache.clear();
@@ -111,7 +153,7 @@ const getCalendarClient = async (userId, userWithTokens = null) => {
 // Get or create the app-specific calendar for a user
 // With calendar.app.created scope, we can only access calendars we create
 const getOrCreateAppCalendar = async (userId) => {
-  const user = await User.findById(userId);
+  const user = await calendarDeps.findUserById(userId);
   
   // Return existing calendar ID if we have one
   if (user.googleCalendarId) {
@@ -169,12 +211,8 @@ const createCalendarEvent = async (meeting) => {
     }
     
     // Use populated data if available, otherwise fetch (backwards compatibility)
-    const student = meeting.student?.email 
-      ? meeting.student 
-      : await User.findById(meeting.student);
-    const navigator = meeting.navigator?.email 
-      ? meeting.navigator 
-      : await User.findById(meeting.navigator);
+    const student = await resolveUser(meeting.student);
+    const navigator = await resolveUser(meeting.navigator);
     
     if (!student || !navigator) {
       throw new Error('Could not find meeting participants');
@@ -265,12 +303,8 @@ const updateCalendarEvent = async (meeting) => {
     }
     
     // Use populated data if available, otherwise fetch
-    const student = meeting.student?.email 
-      ? meeting.student 
-      : await User.findById(meeting.student);
-    const navigator = meeting.navigator?.email 
-      ? meeting.navigator 
-      : await User.findById(meeting.navigator);
+    const student = await resolveUser(meeting.student);
+    const navigator = await resolveUser(meeting.navigator);
     
     const event = {
       summary: meeting.title,
@@ -333,12 +367,8 @@ const deleteCalendarEvent = async (meeting) => {
     }
     
     // Use populated data if available, otherwise fetch
-    const navigator = meeting.navigator?.email 
-      ? meeting.navigator 
-      : await User.findById(meeting.navigator);
-    const student = meeting.student?.email 
-      ? meeting.student 
-      : await User.findById(meeting.student);
+    const navigator = await resolveUser(meeting.navigator);
+    const student = await resolveUser(meeting.student);
     
     // Delete from navigator's app calendar
     if (meeting.navigatorCalendarEventId) {
@@ -398,6 +428,31 @@ const getCalendarEvents = async (userId, startDate, endDate) => {
   }
 };
 
+/**
+ * CalendarGateway - abstract port. High-level modules depend on this interface
+ * rather than importing concrete calendar functions (Dependency Inversion).
+ */
+class CalendarGateway {
+  async createEvent(meeting) { throw new Error('createEvent not implemented'); }
+  async updateEvent(meeting) { throw new Error('updateEvent not implemented'); }
+  async deleteEvent(meeting) { throw new Error('deleteEvent not implemented'); }
+  async getEvents(userId, startDate, endDate) { throw new Error('getEvents not implemented'); }
+}
+
+/**
+ * GoogleCalendarAdapter - Google Calendar implementation of CalendarGateway.
+ * The googleapis dependency is confined to this module; user/token access is
+ * injected via configureCalendarDependencies.
+ */
+class GoogleCalendarAdapter extends CalendarGateway {
+  async createEvent(meeting) { return createCalendarEvent(meeting); }
+  async updateEvent(meeting) { return updateCalendarEvent(meeting); }
+  async deleteEvent(meeting) { return deleteCalendarEvent(meeting); }
+  async getEvents(userId, startDate, endDate) { return getCalendarEvents(userId, startDate, endDate); }
+}
+
+const calendarGateway = new GoogleCalendarAdapter();
+
 module.exports = {
   createCalendarEvent,
   updateCalendarEvent,
@@ -408,6 +463,13 @@ module.exports = {
   createCalendarEventDirect,
   updateCalendarEventDirect,
   deleteCalendarEventDirect,
+  // Abstraction (port) + implementation (adapter) for Dependency Inversion
+  CalendarGateway,
+  GoogleCalendarAdapter,
+  calendarGateway,
+  // Dependency injection seams
+  configureCalendarDependencies,
+  resetCalendarDependencies,
   // Export cache for testing/management
   OAuthClientCache,
   oauthClientCache,
@@ -422,12 +484,8 @@ async function createCalendarEventDirect(meeting) {
   }
   
   // Use populated data if available, otherwise fetch
-  const student = meeting.student?.email 
-    ? meeting.student 
-    : await User.findById(meeting.student);
-  const navigator = meeting.navigator?.email 
-    ? meeting.navigator 
-    : await User.findById(meeting.navigator);
+  const student = await resolveUser(meeting.student);
+  const navigator = await resolveUser(meeting.navigator);
   
   if (!student || !navigator) {
     throw new Error('Could not find meeting participants');
@@ -514,12 +572,8 @@ async function updateCalendarEventDirect(meeting) {
   }
   
   // Use populated data if available, otherwise fetch
-  const student = meeting.student?.email 
-    ? meeting.student 
-    : await User.findById(meeting.student);
-  const navigator = meeting.navigator?.email 
-    ? meeting.navigator 
-    : await User.findById(meeting.navigator);
+  const student = await resolveUser(meeting.student);
+  const navigator = await resolveUser(meeting.navigator);
   
   const event = {
     summary: meeting.title,

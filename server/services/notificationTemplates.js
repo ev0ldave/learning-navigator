@@ -1,56 +1,76 @@
 /**
- * Notification Templates - Strategy Pattern Implementation
- * Open/Closed Principle: Add new notification types without modifying existing code
+ * Notification Templates - Strategy + composition.
+ *
+ * Open/Closed: add a new notification type by registering a new template.
+ * Interface Segregation: content is split into two channel interfaces so a
+ *   consumer that only needs email doesn't depend on in-app methods (and vice
+ *   versa): EmailContent (subject/body) and InAppContent (title/message).
+ * Liskov: channel classes fail fast at construction if a required method is
+ *   not implemented, so every constructed instance is a valid substitute.
  */
 
 /**
- * Base Notification Template - Interface for all notification templates
+ * Assert that a subclass overrides every required method of its base.
  */
-class BaseNotificationTemplate {
-  /**
-   * Get email subject
-   * @param {Object} context - Meeting, student, navigator data
-   * @returns {string}
-   */
-  getEmailSubject(context) {
-    throw new Error('getEmailSubject must be implemented');
+function assertImplemented(instance, base, methods) {
+  for (const method of methods) {
+    if (instance[method] === base.prototype[method]) {
+      throw new TypeError(`${instance.constructor.name} must implement ${method}()`);
+    }
+  }
+}
+
+/**
+ * EmailContent - email channel interface (subject + body).
+ */
+class EmailContent {
+  constructor() {
+    assertImplemented(this, EmailContent, ['subject', 'body']);
+  }
+  subject(context) {}
+  body(context) {}
+}
+
+/**
+ * InAppContent - in-app channel interface (title + message).
+ */
+class InAppContent {
+  constructor() {
+    assertImplemented(this, InAppContent, ['title', 'message']);
+  }
+  title(context) {}
+  message(context) {}
+}
+
+/**
+ * NotificationTemplate - composes the channels a notification type supports
+ * plus the navigator-notification policy. Consumers use `.email` / `.inApp`;
+ * backward-compatible convenience accessors are provided.
+ */
+class NotificationTemplate {
+  constructor({ email, inApp, notifyNavigator = true }) {
+    if (!(email instanceof EmailContent)) {
+      throw new TypeError('email must be an EmailContent instance');
+    }
+    if (!(inApp instanceof InAppContent)) {
+      throw new TypeError('inApp must be an InAppContent instance');
+    }
+    this.email = email;
+    this.inApp = inApp;
+    this._notifyNavigator = notifyNavigator;
   }
 
-  /**
-   * Get notification title for in-app notification
-   * @param {Object} context
-   * @returns {string}
-   */
-  getNotificationTitle(context) {
-    throw new Error('getNotificationTitle must be implemented');
-  }
-
-  /**
-   * Get notification message
-   * @param {Object} context
-   * @returns {string}
-   */
-  getNotificationMessage(context) {
-    throw new Error('getNotificationMessage must be implemented');
-  }
-
-  /**
-   * Get email HTML body
-   * @param {Object} context
-   * @returns {string}
-   */
-  getEmailBody(context) {
-    throw new Error('getEmailBody must be implemented');
-  }
-
-  /**
-   * Should navigator receive this notification?
-   * @param {Object} context
-   * @returns {boolean}
-   */
   shouldNotifyNavigator(context) {
-    return true;
+    return typeof this._notifyNavigator === 'function'
+      ? this._notifyNavigator(context)
+      : this._notifyNavigator;
   }
+
+  // Backward-compatible convenience accessors (delegate to segregated channels)
+  getEmailSubject(context) { return this.email.subject(context); }
+  getEmailBody(context) { return this.email.body(context); }
+  getNotificationTitle(context) { return this.inApp.title(context); }
+  getNotificationMessage(context) { return this.inApp.message(context); }
 }
 
 /**
@@ -91,23 +111,12 @@ const getLocationHtml = (meeting) => {
   return locationHtml;
 };
 
-/**
- * Scheduled Meeting Template
- */
-class ScheduledNotificationTemplate extends BaseNotificationTemplate {
-  getEmailSubject() {
-    return 'New Meeting Scheduled - Learning Navigator';
-  }
-
-  getNotificationTitle() {
-    return 'Meeting Scheduled';
-  }
-
-  getNotificationMessage({ meeting }) {
-    return `A new meeting has been scheduled for ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
-  }
-
-  getEmailBody({ meeting, student, navigator }) {
+/* ------------------------------------------------------------------ */
+/* Scheduled                                                          */
+/* ------------------------------------------------------------------ */
+class ScheduledEmail extends EmailContent {
+  subject() { return 'New Meeting Scheduled - Learning Navigator'; }
+  body({ meeting, student, navigator }) {
     return `
       <h2>Meeting Scheduled</h2>
       <p>A new meeting has been scheduled:</p>
@@ -122,24 +131,24 @@ class ScheduledNotificationTemplate extends BaseNotificationTemplate {
     `;
   }
 }
-
-/**
- * Cancelled Meeting Template
- */
-class CancelledNotificationTemplate extends BaseNotificationTemplate {
-  getEmailSubject() {
-    return 'Meeting Cancelled - Learning Navigator';
+class ScheduledInApp extends InAppContent {
+  title() { return 'Meeting Scheduled'; }
+  message({ meeting }) {
+    return `A new meeting has been scheduled for ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
   }
-
-  getNotificationTitle() {
-    return 'Meeting Cancelled';
+}
+class ScheduledNotificationTemplate extends NotificationTemplate {
+  constructor() {
+    super({ email: new ScheduledEmail(), inApp: new ScheduledInApp(), notifyNavigator: true });
   }
+}
 
-  getNotificationMessage({ meeting }) {
-    return `Your meeting on ${formatDate(meeting.startTime)} has been cancelled`;
-  }
-
-  getEmailBody({ meeting }) {
+/* ------------------------------------------------------------------ */
+/* Cancelled                                                          */
+/* ------------------------------------------------------------------ */
+class CancelledEmail extends EmailContent {
+  subject() { return 'Meeting Cancelled - Learning Navigator'; }
+  body({ meeting }) {
     return `
       <h2>Meeting Cancelled</h2>
       <p>The following meeting has been cancelled:</p>
@@ -152,24 +161,24 @@ class CancelledNotificationTemplate extends BaseNotificationTemplate {
     `;
   }
 }
-
-/**
- * Rescheduled Meeting Template
- */
-class RescheduledNotificationTemplate extends BaseNotificationTemplate {
-  getEmailSubject() {
-    return 'Meeting Rescheduled - Learning Navigator';
+class CancelledInApp extends InAppContent {
+  title() { return 'Meeting Cancelled'; }
+  message({ meeting }) {
+    return `Your meeting on ${formatDate(meeting.startTime)} has been cancelled`;
   }
-
-  getNotificationTitle() {
-    return 'Meeting Rescheduled';
+}
+class CancelledNotificationTemplate extends NotificationTemplate {
+  constructor() {
+    super({ email: new CancelledEmail(), inApp: new CancelledInApp(), notifyNavigator: true });
   }
+}
 
-  getNotificationMessage({ meeting }) {
-    return `Your meeting has been rescheduled to ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
-  }
-
-  getEmailBody({ meeting, student, navigator }) {
+/* ------------------------------------------------------------------ */
+/* Rescheduled                                                        */
+/* ------------------------------------------------------------------ */
+class RescheduledEmail extends EmailContent {
+  subject() { return 'Meeting Rescheduled - Learning Navigator'; }
+  body({ meeting, student, navigator }) {
     return `
       <h2>Meeting Rescheduled</h2>
       <p>Your meeting has been rescheduled:</p>
@@ -185,24 +194,24 @@ class RescheduledNotificationTemplate extends BaseNotificationTemplate {
     `;
   }
 }
-
-/**
- * Reminder Meeting Template
- */
-class ReminderNotificationTemplate extends BaseNotificationTemplate {
-  getEmailSubject() {
-    return 'Meeting Reminder - Learning Navigator';
+class RescheduledInApp extends InAppContent {
+  title() { return 'Meeting Rescheduled'; }
+  message({ meeting }) {
+    return `Your meeting has been rescheduled to ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
   }
-
-  getNotificationTitle() {
-    return 'Meeting Reminder';
+}
+class RescheduledNotificationTemplate extends NotificationTemplate {
+  constructor() {
+    super({ email: new RescheduledEmail(), inApp: new RescheduledInApp(), notifyNavigator: true });
   }
+}
 
-  getNotificationMessage({ meeting, student }) {
-    return `Reminder: You have a meeting with ${student.firstName} ${student.lastName} on ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
-  }
-
-  getEmailBody({ meeting, student, navigator }) {
+/* ------------------------------------------------------------------ */
+/* Reminder (students only)                                           */
+/* ------------------------------------------------------------------ */
+class ReminderEmail extends EmailContent {
+  subject() { return 'Meeting Reminder - Learning Navigator'; }
+  body({ meeting, student, navigator }) {
     return `
       <h2>Meeting Reminder</h2>
       <p>This is a reminder for your upcoming meeting:</p>
@@ -216,30 +225,25 @@ class ReminderNotificationTemplate extends BaseNotificationTemplate {
       </ul>
     `;
   }
-
-  // Reminders only go to students
-  shouldNotifyNavigator() {
-    return false;
+}
+class ReminderInApp extends InAppContent {
+  title() { return 'Meeting Reminder'; }
+  message({ meeting, student }) {
+    return `Reminder: You have a meeting with ${student.firstName} ${student.lastName} on ${formatDate(meeting.startTime)} at ${formatTime(meeting.startTime)}`;
+  }
+}
+class ReminderNotificationTemplate extends NotificationTemplate {
+  constructor() {
+    super({ email: new ReminderEmail(), inApp: new ReminderInApp(), notifyNavigator: false });
   }
 }
 
-/**
- * Note Shared Template
- */
-class NoteSharedNotificationTemplate extends BaseNotificationTemplate {
-  getEmailSubject() {
-    return 'New Session Notes Shared - Learning Navigator';
-  }
-
-  getNotificationTitle() {
-    return 'Session Notes Shared';
-  }
-
-  getNotificationMessage({ note, navigator }) {
-    return `${navigator.firstName} ${navigator.lastName} shared notes from your session: "${note.title}"`;
-  }
-
-  getEmailBody({ note, navigator }) {
+/* ------------------------------------------------------------------ */
+/* Note Shared (students only)                                        */
+/* ------------------------------------------------------------------ */
+class NoteSharedEmail extends EmailContent {
+  subject() { return 'New Session Notes Shared - Learning Navigator'; }
+  body({ note, navigator }) {
     return `
       <h2>Session Notes Shared</h2>
       <p>Your learning navigator ${navigator.firstName} ${navigator.lastName} has shared notes from your session:</p>
@@ -250,18 +254,24 @@ class NoteSharedNotificationTemplate extends BaseNotificationTemplate {
       <p>Log in to the Learning Navigator app to view the full notes.</p>
     `;
   }
-
-  // Note shared notifications only go to students
-  shouldNotifyNavigator() {
-    return false;
+}
+class NoteSharedInApp extends InAppContent {
+  title() { return 'Session Notes Shared'; }
+  message({ note, navigator }) {
+    return `${navigator.firstName} ${navigator.lastName} shared notes from your session: "${note.title}"`;
+  }
+}
+class NoteSharedNotificationTemplate extends NotificationTemplate {
+  constructor() {
+    super({ email: new NoteSharedEmail(), inApp: new NoteSharedInApp(), notifyNavigator: false });
   }
 }
 
 /**
  * Template Registry - Register all templates here
  * To add a new notification type:
- * 1. Create a new template class extending BaseNotificationTemplate
- * 2. Register it in this object
+ * 1. Create EmailContent + InAppContent subclasses and a NotificationTemplate
+ * 2. Register it in this object (or via registerTemplate)
  */
 const notificationTemplates = {
   scheduled: new ScheduledNotificationTemplate(),
@@ -274,7 +284,7 @@ const notificationTemplates = {
 /**
  * Get template for a notification type
  * @param {string} type - Notification type
- * @returns {BaseNotificationTemplate}
+ * @returns {NotificationTemplate}
  */
 const getTemplate = (type) => {
   const template = notificationTemplates[type];
@@ -287,22 +297,27 @@ const getTemplate = (type) => {
 /**
  * Register a new template (for extensibility)
  * @param {string} type - Notification type key
- * @param {BaseNotificationTemplate} template - Template instance
+ * @param {NotificationTemplate} template - Template instance
  */
 const registerTemplate = (type, template) => {
-  if (!(template instanceof BaseNotificationTemplate)) {
-    throw new Error('Template must extend BaseNotificationTemplate');
+  if (!(template instanceof NotificationTemplate)) {
+    throw new Error('Template must be a NotificationTemplate');
   }
   notificationTemplates[type] = template;
 };
 
 module.exports = {
-  BaseNotificationTemplate,
+  // Channel interfaces + composition base
+  EmailContent,
+  InAppContent,
+  NotificationTemplate,
+  // Concrete templates
   ScheduledNotificationTemplate,
   CancelledNotificationTemplate,
   RescheduledNotificationTemplate,
   ReminderNotificationTemplate,
   NoteSharedNotificationTemplate,
+  // Registry + helpers
   notificationTemplates,
   getTemplate,
   registerTemplate,

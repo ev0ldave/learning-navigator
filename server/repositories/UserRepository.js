@@ -58,7 +58,7 @@ class UserRepository extends BaseRepository {
   }
 
   async findWithGoogleTokens(id) {
-    return this.model.findById(id).select('+googleAccessToken +googleRefreshToken');
+    return this.model.findById(id).select('+googleAccessToken +googleRefreshToken +googleTokenExpiry');
   }
 }
 

@@ -112,6 +112,31 @@ class NoteRepository extends BaseRepository {
 
     return query;
   }
+
+  /**
+   * Find notes attached to a set of meetings for a navigator's report.
+   */
+  async findForSessionHistory(meetingIds, navigatorId) {
+    return this.find({ meeting: { $in: meetingIds }, navigator: navigatorId });
+  }
+
+  /**
+   * Find notes for a custom report, scoped by requester role and students.
+   */
+  async findForCustomReport({ startDate, endDate, studentIds = [] }, requester) {
+    const query = {
+      createdAt: { $gte: new Date(startDate), $lte: new Date(endDate) }
+    };
+
+    if (requester.role !== 'administrator') {
+      query.navigator = requester._id;
+    }
+    if (studentIds.length > 0) {
+      query.student = { $in: studentIds };
+    }
+
+    return this.find(query);
+  }
 }
 
 // Export singleton instance and class for DI
