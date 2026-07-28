@@ -19,7 +19,8 @@ import {
   Badge,
   useTheme,
   useMediaQuery,
-  Tooltip
+  BottomNavigation,
+  BottomNavigationAction
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -46,6 +47,7 @@ const drawerWidth = 240;
 const MainLayout = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const isNarrowMobile = useMediaQuery('(max-width:360px)');
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, isNavigator, isAdmin } = useAuth();
@@ -103,6 +105,17 @@ const MainLayout = () => {
       { text: 'School Quarters', icon: <QuarterIcon />, path: '/admin/quarters' }
     );
   }
+
+  const mobileNavItems = menuItems.filter(item =>
+    ['/dashboard', '/calendar', '/meetings', '/students', '/reports'].includes(item.path)
+  );
+  const mobileNavItemsForViewport = isNarrowMobile
+    ? mobileNavItems.slice(0, 4)
+    : mobileNavItems.slice(0, 5);
+
+  const activeMobilePath = mobileNavItemsForViewport.find(item =>
+    location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)
+  )?.path || mobileNavItemsForViewport[0]?.path || '/dashboard';
 
   const drawer = (
     <Box>
@@ -162,7 +175,7 @@ const MainLayout = () => {
           color: 'text.primary'
         }}
       >
-        <Toolbar>
+        <Toolbar sx={{ minHeight: { xs: 56, sm: 64 } }}>
           <IconButton
             color="inherit"
             edge="start"
@@ -171,6 +184,12 @@ const MainLayout = () => {
           >
             <MenuIcon />
           </IconButton>
+
+          {isMobile && (
+            <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem' }}>
+              Learning Navigator
+            </Typography>
+          )}
           
           <Box sx={{ flexGrow: 1 }} />
           
@@ -244,15 +263,46 @@ const MainLayout = () => {
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
+          p: { xs: 1.5, sm: 2, md: 3 },
           width: { md: `calc(100% - ${drawerWidth}px)` },
           minHeight: '100vh',
-          bgcolor: 'background.default'
+          bgcolor: 'background.default',
+          pb: { xs: 10, md: 3 }
         }}
       >
         <Toolbar />
         <Outlet />
       </Box>
+
+      {isMobile && (
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: theme.zIndex.appBar,
+            borderTop: `1px solid ${theme.palette.divider}`,
+            bgcolor: 'background.paper',
+            pb: 'env(safe-area-inset-bottom)'
+          }}
+        >
+          <BottomNavigation
+            showLabels={!isNarrowMobile}
+            value={activeMobilePath}
+            onChange={(event, newValue) => navigate(newValue)}
+          >
+            {mobileNavItemsForViewport.map(item => (
+              <BottomNavigationAction
+                key={item.path}
+                label={item.text}
+                value={item.path}
+                icon={item.icon}
+              />
+            ))}
+          </BottomNavigation>
+        </Box>
+      )}
     </Box>
   );
 };

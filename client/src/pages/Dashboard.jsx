@@ -27,9 +27,13 @@ import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { meetingsAPI, usersAPI } from '../services/api';
 import BookMeetingDialog from '../components/meetings/BookMeetingDialog';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { user, isNavigator, isStudent } = useAuth();
   const [loading, setLoading] = useState(true);
   const [upcomingMeetings, setUpcomingMeetings] = useState([]);
@@ -81,9 +85,18 @@ const Dashboard = () => {
 
   return (
     <Box>
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Box
+        sx={{
+          mb: 3,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: { xs: 'stretch', sm: 'center' },
+          flexDirection: { xs: 'column', sm: 'row' },
+          gap: 2
+        }}
+      >
         <Box>
-          <Typography variant="h4" gutterBottom>
+          <Typography variant={isMobile ? 'h5' : 'h4'} gutterBottom>
             Welcome, {user?.firstName}!
           </Typography>
           <Typography variant="body1" color="text.secondary">
@@ -94,6 +107,7 @@ const Dashboard = () => {
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => setBookDialogOpen(true)}
+          fullWidth={isMobile}
         >
           {isStudent() ? 'Book Session' : 'Schedule Meeting'}
         </Button>
@@ -244,6 +258,7 @@ const Dashboard = () => {
                           label={meeting.status}
                           size="small"
                           color={getStatusColor(meeting.status)}
+                          sx={{ alignSelf: { xs: 'flex-start', sm: 'center' }, mt: { xs: 1, sm: 0 } }}
                         />
                       </ListItemButton>
                     </ListItem>
