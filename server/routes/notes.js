@@ -84,10 +84,15 @@ router.get('/student/:studentId', isAuthenticated, async (req, res) => {
     }
     
     const notes = await noteRepository.findForStudent(studentId, req.user.role, { type });
-    
+
+    // Strip private content from notes for students
+    const sanitizedNotes = req.user.role === 'student'
+      ? noteService.sanitizeNotesForStudent(notes)
+      : notes;
+
     res.json({
       success: true,
-      notes
+      notes: sanitizedNotes
     });
   } catch (error) {
     console.error('Get student notes error:', error);
@@ -122,10 +127,15 @@ router.get('/meeting/:meetingId', isAuthenticated, async (req, res) => {
     }
     
     const notes = await noteRepository.findForMeeting(meetingId, req.user.role);
-    
+
+    // Strip private content from notes for students
+    const sanitizedNotes = req.user.role === 'student'
+      ? noteService.sanitizeNotesForStudent(notes)
+      : notes;
+
     res.json({
       success: true,
-      notes
+      notes: sanitizedNotes
     });
   } catch (error) {
     console.error('Get meeting notes error:', error);
@@ -156,10 +166,15 @@ router.get('/:id', isAuthenticated, async (req, res) => {
         message: 'Access denied'
       });
     }
-    
+
+    // Strip private content from the note for students
+    const sanitizedNote = req.user.role === 'student'
+      ? noteService.sanitizeNoteForStudent(note)
+      : note;
+
     res.json({
       success: true,
-      note
+      note: sanitizedNote
     });
   } catch (error) {
     console.error('Get note error:', error);

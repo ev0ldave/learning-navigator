@@ -521,13 +521,13 @@ const MeetingDetail = () => {
                         </Box>
                       </Box>
                       {note.sharedContent && (
-                        <Typography variant="body2" sx={{ mb: 1, pl: 1, borderLeft: '3px solid #4caf50', width: '100%' }}>
-                          <strong>Shared:</strong> {note.sharedContent.length > 100 ? `${note.sharedContent.substring(0, 100)}...` : note.sharedContent}
+                        <Typography variant="body2" sx={{ mb: 1, pl: 1, borderLeft: '3px solid #4caf50', width: '100%', whiteSpace: 'pre-wrap' }}>
+                          <strong>Shared:</strong> {note.sharedContent}
                         </Typography>
                       )}
                       {note.privateContent && (
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1, pl: 1, borderLeft: '3px solid #9e9e9e', width: '100%' }}>
-                          <strong>Private:</strong> {note.privateContent.length > 100 ? `${note.privateContent.substring(0, 100)}...` : note.privateContent}
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1, pl: 1, borderLeft: '3px solid #9e9e9e', width: '100%', whiteSpace: 'pre-wrap' }}>
+                          <strong>Private:</strong> {note.privateContent}
                         </Typography>
                       )}
                       <Typography variant="caption" color="text.secondary">

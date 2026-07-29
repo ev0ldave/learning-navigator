@@ -286,6 +286,26 @@ describe('Notes Routes', () => {
       expect(res.body.note.title).toBe('Shared Note');
     });
 
+    it('should strip privateContent from a shared note for student', async () => {
+      const sharedWithPrivate = await Note.create({
+        student: student._id,
+        navigator: navigator._id,
+        title: 'Shared Note With Private',
+        sharedContent: 'Visible content',
+        privateContent: 'Should be hidden',
+        type: 'shared',
+        createdBy: navigator._id
+      });
+
+      const res = await request(app)
+        .get(`/api/notes/${sharedWithPrivate._id}`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.note.privateContent).toBeUndefined();
+    });
+
     it('should deny private note access to student', async () => {
       const res = await request(app)
         .get(`/api/notes/${privateNote._id}`)
@@ -365,6 +385,27 @@ describe('Notes Routes', () => {
 
       expect(res.body.success).toBe(false);
     });
+
+    it('should strip privateContent from shared notes for student', async () => {
+      await Note.create({
+        student: student._id,
+        navigator: navigator._id,
+        title: 'Shared with private',
+        sharedContent: 'Visible to student',
+        privateContent: 'Should be hidden',
+        type: 'shared',
+        createdBy: navigator._id
+      });
+
+      const res = await request(app)
+        .get(`/api/notes/student/${student._id}`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.notes.length).toBeGreaterThan(0);
+      expect(res.body.notes.every(n => n.privateContent === undefined)).toBe(true);
+    });
   });
 
   describe('GET /api/notes/meeting/:meetingId', () => {
@@ -389,6 +430,27 @@ describe('Notes Routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.notes.length).toBe(1);
       expect(res.body.notes[0].title).toBe('Meeting Note');
+    });
+
+    it('should strip privateContent from meeting notes for student', async () => {
+      await Note.create({
+        student: student._id,
+        navigator: navigator._id,
+        meeting: meeting._id,
+        title: 'Shared meeting note with private',
+        sharedContent: 'Session summary',
+        privateContent: 'Should be hidden',
+        type: 'shared',
+        createdBy: navigator._id
+      });
+
+      const res = await request(app)
+        .get(`/api/notes/meeting/${meeting._id}`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.notes.every(n => n.privateContent === undefined)).toBe(true);
     });
 
     it('should return 404 for non-existent meeting', async () => {
