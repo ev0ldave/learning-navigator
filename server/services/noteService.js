@@ -108,14 +108,19 @@ class NoteService {
   }
 
   /**
+   * Strip private content from a single note for students
+   */
+  sanitizeNoteForStudent(note) {
+    const noteObj = note.toObject ? note.toObject() : { ...note };
+    delete noteObj.privateContent;
+    return noteObj;
+  }
+
+  /**
    * Strip private content from notes for students
    */
   sanitizeNotesForStudent(notes) {
-    return notes.map(note => {
-      const noteObj = note.toObject ? note.toObject() : { ...note };
-      delete noteObj.privateContent;
-      return noteObj;
-    });
+    return notes.map(note => this.sanitizeNoteForStudent(note));
   }
 
   /**

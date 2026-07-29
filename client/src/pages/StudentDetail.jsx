@@ -86,11 +86,33 @@ const StudentDetail = () => {
                       <ListItem key={note._id} sx={{ bgcolor: 'background.default', mb: 1, borderRadius: 1, flexDirection: 'column', alignItems: 'flex-start' }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', mb: 0.5 }}>
                           <Typography variant="subtitle1" fontWeight="medium">{note.title}</Typography>
-                          <Chip label={note.type} size="small" color={note.type === 'shared' ? 'success' : 'default'} />
+                          <Box>
+                            {note.sharedContent && (
+                              <Chip label="Shared" size="small" color="success" sx={{ mr: 0.5 }} />
+                            )}
+                            {note.privateContent && (
+                              <Chip label="Private" size="small" color="default" />
+                            )}
+                            {!note.sharedContent && !note.privateContent && (
+                              <Chip label={note.type} size="small" color={note.type === 'shared' ? 'success' : 'default'} />
+                            )}
+                          </Box>
                         </Box>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                          {note.content?.substring(0, 100)}{note.content?.length > 100 ? '...' : ''}
-                        </Typography>
+                        {note.sharedContent && (
+                          <Typography variant="body2" sx={{ mb: 0.5, pl: 1, borderLeft: '3px solid #4caf50', width: '100%', whiteSpace: 'pre-wrap' }}>
+                            <strong>Shared:</strong> {note.sharedContent}
+                          </Typography>
+                        )}
+                        {note.privateContent && (
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, pl: 1, borderLeft: '3px solid #9e9e9e', width: '100%', whiteSpace: 'pre-wrap' }}>
+                            <strong>Private:</strong> {note.privateContent}
+                          </Typography>
+                        )}
+                        {!note.sharedContent && !note.privateContent && note.content && (
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, whiteSpace: 'pre-wrap' }}>
+                            {note.content}
+                          </Typography>
+                        )}
                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                           <Typography variant="caption" color="text.secondary">
                             {format(new Date(note.createdAt), 'MMM d, yyyy h:mm a')}
