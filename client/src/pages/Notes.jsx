@@ -9,6 +9,8 @@ import { format } from 'date-fns';
 import { notesAPI, usersAPI } from '../services/api';
 import { useNotification } from '../contexts/NotificationContext';
 
+const PREVIEW_LENGTH = 200;
+
 const Notes = () => {
   const { showSuccess, showError } = useNotification();
   const [loading, setLoading] = useState(true);
@@ -16,9 +18,13 @@ const Notes = () => {
   const [students, setStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [expandedNotes, setExpandedNotes] = useState({});
   const [formData, setFormData] = useState({
     studentId: '', title: '', content: ''
   });
+
+  const toggleExpanded = (id) =>
+    setExpandedNotes(prev => ({ ...prev, [id]: !prev[id] }));
 
   useEffect(() => {
     fetchStudents();
@@ -124,20 +130,55 @@ const Notes = () => {
             </Box>
           ) : (
             <List>
-              {filteredNotes.map(note => (
-                <ListItem key={note._id} sx={{ bgcolor: 'background.default', mb: 1, borderRadius: 1, flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <ListItemText
-                      primary={note.title}
-                      secondary={format(new Date(note.createdAt), 'MMM d, yyyy h:mm a')}
-                    />
-                  </Box>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    {(note.privateContent || note.content || '').substring(0, 200)}
-                    {(note.privateContent || note.content || '').length > 200 ? '...' : ''}
-                  </Typography>
-                </ListItem>
-              ))}
+              {filteredNotes.map(note => {
+                const shared = note.sharedContent || '';
+                const priv = note.privateContent || '';
+                const legacy = (!shared && !priv) ? (note.content || '') : '';
+                const expanded = !!expandedNotes[note._id];
+                const isLong =
+                  shared.length > PREVIEW_LENGTH ||
+                  priv.length > PREVIEW_LENGTH ||
+                  legacy.length > PREVIEW_LENGTH;
+                const clip = (text) =>
+                  expanded || text.length <= PREVIEW_LENGTH
+                    ? text
+                    : `${text.substring(0, PREVIEW_LENGTH)}...`;
+
+                return (
+                  <ListItem key={note._id} sx={{ bgcolor: 'background.default', mb: 1, borderRadius: 1, flexDirection: 'column', alignItems: 'flex-start' }}>
+                    <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <ListItemText
+                        primary={note.title}
+                        secondary={format(new Date(note.createdAt), 'MMM d, yyyy h:mm a')}
+                      />
+                    </Box>
+                    {shared && (
+                      <Typography variant="body2" sx={{ mt: 1, pl: 1, borderLeft: '3px solid #4caf50', width: '100%', whiteSpace: 'pre-wrap' }}>
+                        <strong>Shared:</strong> {clip(shared)}
+                      </Typography>
+                    )}
+                    {priv && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1, pl: 1, borderLeft: '3px solid #9e9e9e', width: '100%', whiteSpace: 'pre-wrap' }}>
+                        <strong>Private:</strong> {clip(priv)}
+                      </Typography>
+                    )}
+                    {legacy && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1, width: '100%', whiteSpace: 'pre-wrap' }}>
+                        {clip(legacy)}
+                      </Typography>
+                    )}
+                    {isLong && (
+                      <Button
+                        size="small"
+                        onClick={() => toggleExpanded(note._id)}
+                        sx={{ mt: 0.5, textTransform: 'none' }}
+                      >
+                        {expanded ? 'Show less' : 'Show more'}
+                      </Button>
+                    )}
+                  </ListItem>
+                );
+              })}
             </List>
           )}
         </CardContent>
