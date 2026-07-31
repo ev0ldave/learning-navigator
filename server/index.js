@@ -174,16 +174,54 @@ const connectDB = async () => {
   }
 };
 
+// Log why the process is exiting so platform restarts (SIGTERM/SIGKILL,
+// OOM, crashes) leave a trace instead of appearing as a silent restart.
+const logMemoryUsage = (label) => {
+  const { rss, heapUsed, heapTotal } = process.memoryUsage();
+  const mb = (n) => Math.round(n / 1024 / 1024);
+  console.log(`🧠 [${label}] rss=${mb(rss)}MB heapUsed=${mb(heapUsed)}MB heapTotal=${mb(heapTotal)}MB`);
+};
+
+const registerProcessDiagnostics = (server) => {
+  const shutdown = (signal) => {
+    console.log(`⚠️  Received ${signal} — shutting down gracefully`);
+    logMemoryUsage(signal);
+    server.close(() => {
+      mongoose.connection.close(false).finally(() => process.exit(0));
+    });
+    // Force-exit if graceful shutdown stalls
+    setTimeout(() => process.exit(1), 10000).unref();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('uncaughtException', (err) => {
+    console.error('💥 Uncaught exception:', err);
+    logMemoryUsage('uncaughtException');
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('💥 Unhandled promise rejection:', reason);
+    logMemoryUsage('unhandledRejection');
+  });
+
+  // Periodic memory sampling to catch approach toward the 512MB free-tier limit
+  setInterval(() => logMemoryUsage('sample'), 5 * 60 * 1000).unref();
+};
+
 // Only start server if not in test mode
 if (process.env.NODE_ENV !== 'test') {
   connectDB().then(async () => {
-    app.listen(PORT, async () => {
+    const server = app.listen(PORT, async () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      
+      logMemoryUsage('startup');
+
       // Sync zoom links for future meetings
       await syncZoomLinks();
     });
+
+    registerProcessDiagnostics(server);
   });
 }
 
