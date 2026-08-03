@@ -24,6 +24,9 @@ require('./config/passport');
 // Import zoom link sync service
 const { syncZoomLinks } = require('./services/zoomLinkSyncService');
 
+// Import email transport verifier (surfaces SMTP misconfiguration at startup)
+const { verifyEmailTransport } = require('./services/notificationService');
+
 const app = express();
 
 // Validate required secrets in production
@@ -216,6 +219,16 @@ if (process.env.NODE_ENV !== 'test') {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
       logMemoryUsage('startup');
+
+      // Verify email transport so blocked/misconfigured SMTP is visible at boot
+      const emailStatus = await verifyEmailTransport();
+      if (emailStatus.ok) {
+        console.log('✅ Email transport verified (SMTP ready)');
+      } else if (!emailStatus.configured) {
+        console.error(`⚠️  Email DISABLED: ${emailStatus.error} — meeting/note notifications will not be emailed`);
+      } else {
+        console.error(`❌ Email transport verification FAILED: ${emailStatus.error}${emailStatus.code ? ` (code: ${emailStatus.code})` : ''} — emails will not send`);
+      }
 
       // Sync zoom links for future meetings
       await syncZoomLinks();

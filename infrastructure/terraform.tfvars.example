@@ -42,12 +42,13 @@ github_branch = "main"
 google_client_id     = "your-google-client-id.apps.googleusercontent.com"
 google_client_secret = "your-google-client-secret"
 
-# Email Configuration (Gmail SMTP)
-email_host     = "smtp.gmail.com"
-email_port     = 587
-email_user     = "your-email@gmail.com"
-email_password = "your-app-password"  # Use Gmail App Password, not account password
-email_from     = "Learning Navigator <your-email@gmail.com>"
+# Email Configuration (Brevo SMTP relay)
+# Port 2525 because Render free web services block SMTP ports 25/465/587.
+email_host     = "smtp-relay.brevo.com"
+email_port     = 2525
+email_user     = "your-brevo-smtp-login"  # Brevo > SMTP & API > SMTP (e.g. 9xxxxx001@smtp-brevo.com)
+email_password = "your-brevo-smtp-key"    # Brevo SMTP key / master password, NOT the account password
+email_from     = "Learning Navigator <your-verified-sender@example.com>"  # Must be a Verified Sender in Brevo
 
 # Admin Configuration
 admin_email    = "admin@example.com"
