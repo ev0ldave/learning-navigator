@@ -85,11 +85,11 @@ resource "render_web_service" "backend" {
   # Health check
   health_check_path = "/api/health"
 
-  # Ignore changes that cause issues with free tier
-  # The Render provider sends maintenance_mode in update requests which fails on free tier
-  # Use Render dashboard to update env vars instead, or auto-deploy picks up code changes
+  # Ignore only maintenance_mode: the Render provider includes it in update
+  # requests where it can fail on the free tier. Everything else (including
+  # env_vars) is managed by Terraform, so `terraform apply` pushes env changes.
   lifecycle {
-    ignore_changes = all
+    ignore_changes = [maintenance_mode]
   }
 }
 

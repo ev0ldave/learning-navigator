@@ -21,10 +21,11 @@ class EmailSender {
   }
 
   _defaultTransporterFactory() {
+    const port = parseInt(process.env.EMAIL_PORT) || 2525;
     return nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.EMAIL_PORT) || 587,
-      secure: false,
+      host: process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
+      port,
+      secure: port === 465, // 465 = implicit TLS; 587/2525 use STARTTLS
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASSWORD
@@ -61,10 +62,30 @@ class EmailSender {
     }
   }
 
+  /**
+   * Verify SMTP connection + auth so misconfiguration or blocked outbound
+   * SMTP (common on PaaS hosts) surfaces loudly instead of failing per-send.
+   */
+  async verify() {
+    const missing = [
+      !process.env.EMAIL_USER && 'EMAIL_USER',
+      !process.env.EMAIL_PASSWORD && 'EMAIL_PASSWORD'
+    ].filter(Boolean);
+    if (missing.length) {
+      return { ok: false, configured: false, error: `Missing ${missing.join(', ')}` };
+    }
+    try {
+      await this._getTransporter().verify();
+      return { ok: true, configured: true };
+    } catch (error) {
+      return { ok: false, configured: true, error: error.message, code: error.code };
+    }
+  }
+
   async send(to, subject, html, text) {
     // Skip if no email configuration
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-      console.log('Email configuration not set, skipping email send');
+      console.error('Email NOT sent: EMAIL_USER/EMAIL_PASSWORD not configured');
       return { skipped: true };
     }
 
@@ -407,9 +428,11 @@ const sendNoteSharedNotification = (note, student) => notificationService.sendNo
 const sendEmailDirect = (to, subject, html, text) => notificationService.sendEmailDirect(to, subject, html, text);
 const sendMeetingNotificationDirect = (meeting, type) => notificationService.sendMeetingNotificationDirect(meeting, type);
 const sendNoteSharedNotificationDirect = (note, student) => notificationService.sendNoteSharedNotificationDirect(note, student);
+const verifyEmailTransport = () => notificationService.sender.verify();
 
 module.exports = {
   sendEmail,
+  verifyEmailTransport,
   createNotification,
   sendMeetingNotification,
   sendNoteSharedNotification,

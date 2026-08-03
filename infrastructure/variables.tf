@@ -98,13 +98,13 @@ variable "google_client_secret" {
 variable "email_host" {
   description = "SMTP email host"
   type        = string
-  default     = "smtp.gmail.com"
+  default     = "smtp-relay.brevo.com"
 }
 
 variable "email_port" {
-  description = "SMTP email port"
+  description = "SMTP email port (2525 avoids Render free-tier SMTP block)"
   type        = number
-  default     = 587
+  default     = 2525
 }
 
 variable "email_user" {
