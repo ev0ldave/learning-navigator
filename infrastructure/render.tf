@@ -85,11 +85,14 @@ resource "render_web_service" "backend" {
   # Health check
   health_check_path = "/api/health"
 
-  # Ignore only maintenance_mode: the Render provider includes it in update
-  # requests where it can fail on the free tier. Everything else (including
-  # env_vars) is managed by Terraform, so `terraform apply` pushes env changes.
+  # Free-tier limitation: the Render provider sends a maintenance_mode block in
+  # every update request, which the API rejects for free services ("maintenance
+  # mode can only be configured for non-free tier services"). ignore_changes
+  # only hides the diff, not the transmitted field, so ANY update fails. We must
+  # ignore all changes and manage env vars via the Render dashboard instead.
+  # (Remove this and manage via Terraform only after upgrading to a paid plan.)
   lifecycle {
-    ignore_changes = [maintenance_mode]
+    ignore_changes = all
   }
 }
 
