@@ -49,16 +49,20 @@ const Meetings = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [upcomingDays, setUpcomingDays] = useState(7);
+  const [upcomingHasMore, setUpcomingHasMore] = useState(true);
 
   useEffect(() => {
     setPage(1);
-    fetchMeetings(1, false);
+    setUpcomingDays(7);
+    setUpcomingHasMore(true);
+    fetchMeetings({ pageToLoad: 1, daysAhead: 7 });
   }, [tab, sortOrder]);
 
-  const fetchMeetings = async (pageToLoad = 1, append = false) => {
+  const fetchMeetings = async ({ pageToLoad = 1, append = false, isLoadMore = false, daysAhead = upcomingDays } = {}) => {
     try {
-      if (append) {
+      if (isLoadMore) {
         setLoadingMore(true);
       } else {
         setLoading(true);
@@ -66,8 +70,11 @@ const Meetings = () => {
       const params = { page: pageToLoad, limit: 50, sort: sortOrder };
       
       if (tab === 0) {
-        // Upcoming
+        // Upcoming - limited to the next `daysAhead` days
         params.startDate = new Date().toISOString();
+        const end = new Date();
+        end.setDate(end.getDate() + daysAhead);
+        params.endDate = end.toISOString();
         params.status = 'scheduled,confirmed';
       } else if (tab === 1) {
         // Past
@@ -79,15 +86,32 @@ const Meetings = () => {
       
       const response = await meetingsAPI.getAll(params);
       const fetched = response.data.meetings || [];
-      setMeetings(prev => (append ? [...prev, ...fetched] : fetched));
+      // Upcoming widens a date window, so replace the list; other tabs paginate
+      setMeetings(prev => (append && tab !== 0 ? [...prev, ...fetched] : fetched));
       setTotalPages(response.data.pagination?.pages || 1);
       setPage(pageToLoad);
+      return fetched;
     } catch (err) {
       setError('Failed to load meetings');
       console.error('Meetings error:', err);
+      return [];
     } finally {
       setLoading(false);
       setLoadingMore(false);
+    }
+  };
+
+  const handleLoadMore = async () => {
+    if (tab === 0) {
+      const prevCount = meetings.length;
+      const newDays = upcomingDays + 7;
+      setUpcomingDays(newDays);
+      const fetched = await fetchMeetings({ pageToLoad: 1, isLoadMore: true, daysAhead: newDays });
+      if (fetched.length <= prevCount) {
+        setUpcomingHasMore(false);
+      }
+    } else {
+      fetchMeetings({ pageToLoad: page + 1, append: true, isLoadMore: true });
     }
   };
 
@@ -261,11 +285,11 @@ const Meetings = () => {
               ))}
             </List>
           )}
-          {!loading && !search && page < totalPages && (
+          {!loading && !search && (tab === 0 ? upcomingHasMore : page < totalPages) && (
             <Box display="flex" justifyContent="center" pt={2}>
               <Button
                 variant="outlined"
-                onClick={() => fetchMeetings(page + 1, true)}
+                onClick={handleLoadMore}
                 disabled={loadingMore}
                 startIcon={loadingMore ? <CircularProgress size={16} /> : null}
               >
@@ -281,7 +305,7 @@ const Meetings = () => {
         onClose={() => setBookDialogOpen(false)}
         onSuccess={() => {
           setBookDialogOpen(false);
-          fetchMeetings(1, false);
+          fetchMeetings({ pageToLoad: 1 });
         }}
       />
     </Box>
