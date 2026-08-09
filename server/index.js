@@ -24,6 +24,9 @@ require('./config/passport');
 // Import zoom link sync service
 const { syncZoomLinks } = require('./services/zoomLinkSyncService');
 
+// Import one-time migration runner
+const { runMigrations } = require('./migrations');
+
 // Import email transport verifier (surfaces SMTP misconfiguration at startup)
 const { verifyEmailTransport } = require('./services/notificationService');
 
@@ -215,6 +218,9 @@ const registerProcessDiagnostics = (server) => {
 // Only start server if not in test mode
 if (process.env.NODE_ENV !== 'test') {
   connectDB().then(async () => {
+    // Run pending one-time migrations before accepting traffic
+    await runMigrations();
+
     const server = app.listen(PORT, async () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
