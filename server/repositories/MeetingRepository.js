@@ -60,10 +60,11 @@ class MeetingRepository extends BaseRepository {
     }
 
     const skip = ((pagination.page || 1) - 1) * (pagination.limit || 50);
+    const sortDirection = filters.sort === 'desc' ? -1 : 1;
 
     const [meetings, total] = await Promise.all([
       this.find(query, {
-        sort: { startTime: 1 },
+        sort: { startTime: sortDirection },
         skip,
         limit: pagination.limit || 50,
         populate: [
