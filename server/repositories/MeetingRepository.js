@@ -80,8 +80,10 @@ class MeetingRepository extends BaseRepository {
   }
 
   async findUpcoming(userId, role, limit = 10) {
+    const now = new Date();
+    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     const query = {
-      startTime: { $gte: new Date() },
+      startTime: { $gte: now, $lte: sevenDaysFromNow },
       status: { $in: ['scheduled', 'confirmed'] }
     };
 
