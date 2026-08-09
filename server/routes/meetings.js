@@ -40,12 +40,12 @@ const handleServiceError = (error, res) => {
 // @access  Private
 router.get('/', isAuthenticated, async (req, res) => {
   try {
-    const { startDate, endDate, status, page = 1, limit = 50 } = req.query;
+    const { startDate, endDate, status, sort, page = 1, limit = 50 } = req.query;
     
     const { meetings, total } = await meetingRepository.findForUser(
       req.user._id,
       req.user.role,
-      { startDate, endDate, status },
+      { startDate, endDate, status, sort },
       { page: parseInt(page), limit: parseInt(limit) }
     );
     

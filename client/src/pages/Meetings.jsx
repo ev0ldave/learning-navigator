@@ -17,7 +17,11 @@ import {
   Tabs,
   Tab,
   TextField,
-  InputAdornment
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -42,15 +46,24 @@ const Meetings = () => {
   const [tab, setTab] = useState(0);
   const [search, setSearch] = useState('');
   const [bookDialogOpen, setBookDialogOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [sortOrder, setSortOrder] = useState('desc');
 
   useEffect(() => {
-    fetchMeetings();
-  }, [tab]);
+    setPage(1);
+    fetchMeetings(1, false);
+  }, [tab, sortOrder]);
 
-  const fetchMeetings = async () => {
+  const fetchMeetings = async (pageToLoad = 1, append = false) => {
     try {
-      setLoading(true);
-      const params = {};
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
+      const params = { page: pageToLoad, limit: 50, sort: sortOrder };
       
       if (tab === 0) {
         // Upcoming
@@ -65,12 +78,16 @@ const Meetings = () => {
       }
       
       const response = await meetingsAPI.getAll(params);
-      setMeetings(response.data.meetings || []);
+      const fetched = response.data.meetings || [];
+      setMeetings(prev => (append ? [...prev, ...fetched] : fetched));
+      setTotalPages(response.data.pagination?.pages || 1);
+      setPage(pageToLoad);
     } catch (err) {
       setError('Failed to load meetings');
       console.error('Meetings error:', err);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -140,6 +157,18 @@ const Meetings = () => {
               <Tab label="Cancelled" />
             </Tabs>
             <Box sx={{ flexGrow: 1 }} />
+            <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 170 } }}>
+              <InputLabel id="meetings-sort-label">Sort by</InputLabel>
+              <Select
+                labelId="meetings-sort-label"
+                label="Sort by"
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value)}
+              >
+                <MenuItem value="desc">Latest first</MenuItem>
+                <MenuItem value="asc">Oldest first</MenuItem>
+              </Select>
+            </FormControl>
             <TextField
               size="small"
               placeholder="Search meetings..."
@@ -232,6 +261,18 @@ const Meetings = () => {
               ))}
             </List>
           )}
+          {!loading && !search && page < totalPages && (
+            <Box display="flex" justifyContent="center" pt={2}>
+              <Button
+                variant="outlined"
+                onClick={() => fetchMeetings(page + 1, true)}
+                disabled={loadingMore}
+                startIcon={loadingMore ? <CircularProgress size={16} /> : null}
+              >
+                {loadingMore ? 'Loading...' : 'Load more'}
+              </Button>
+            </Box>
+          )}
         </CardContent>
       </Card>
 
@@ -240,7 +281,7 @@ const Meetings = () => {
         onClose={() => setBookDialogOpen(false)}
         onSuccess={() => {
           setBookDialogOpen(false);
-          fetchMeetings();
+          fetchMeetings(1, false);
         }}
       />
     </Box>
