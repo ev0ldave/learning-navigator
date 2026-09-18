@@ -357,8 +357,49 @@ const generateReportExcel = async (report) => {
   return buffer;
 };
 
+/**
+ * Generate an Excel workbook listing users and their email addresses
+ */
+const generateUsersExcel = async (users) => {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Learning Navigator';
+  workbook.created = new Date();
+
+  const ws = workbook.addWorksheet('Users', {
+    properties: { tabColor: { argb: '1976D2' } }
+  });
+
+  ws.columns = [
+    { key: 'firstName', width: 20 },
+    { key: 'lastName', width: 20 },
+    { key: 'email', width: 35 },
+    { key: 'role', width: 20 },
+    { key: 'status', width: 12 }
+  ];
+
+  const headerRow = ws.addRow(['First Name', 'Last Name', 'Email', 'Role', 'Status']);
+  headerRow.height = 20;
+  headerRow.eachCell((cell) => applyStyle(cell, STYLES.tableHeader));
+
+  users.forEach((user, idx) => {
+    const style = idx % 2 === 0 ? STYLES.tableCell : STYLES.tableCellAlt;
+    const row = ws.addRow([
+      user.firstName || '',
+      user.lastName || '',
+      user.email || '',
+      (user.role || '').replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
+      user.isActive ? 'Active' : 'Inactive'
+    ]);
+    row.eachCell((cell) => applyStyle(cell, style));
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return buffer;
+};
+
 module.exports = {
   generateReportExcel,
+  generateUsersExcel,
   THEME,
   STYLES
 };
