@@ -4,6 +4,7 @@ const { body, validationResult, param } = require('express-validator');
 const { userRepository } = require('../repositories');
 const userService = require('../services/userService');
 const { UserValidationError } = require('../services/userService');
+const { generateUsersExcel } = require('../services/excelService');
 const { 
   isAuthenticated, 
   requireAdmin, 
@@ -218,6 +219,56 @@ router.get('/my-students', isAuthenticated, requireNavigator, async (req, res) =
     res.status(500).json({
       success: false,
       message: 'Error fetching students'
+    });
+  }
+});
+
+// @route   GET /api/users/export/emails
+// @desc    Export emails of all users (optionally filtered by role)
+// @access  Private/Navigator
+router.get('/export/emails', isAuthenticated, requireNavigator, async (req, res) => {
+  try {
+    const { role, format = 'xlsx' } = req.query;
+
+    const query = {};
+    if (role && ['student', 'learning_navigator', 'administrator'].includes(role)) {
+      query.role = role;
+    }
+
+    const users = await userRepository.find(query, {
+      sort: { lastName: 1, firstName: 1 },
+      select: 'firstName lastName email role isActive'
+    });
+
+    const timestamp = new Date().toISOString().split('T')[0];
+
+    if (format === 'csv') {
+      const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+      const header = ['First Name', 'Last Name', 'Email', 'Role', 'Status'];
+      const rows = users.map((u) => [
+        u.firstName,
+        u.lastName,
+        u.email,
+        (u.role || '').replace(/_/g, ' '),
+        u.isActive ? 'Active' : 'Inactive'
+      ].map(escape).join(','));
+      const csv = [header.map(escape).join(','), ...rows].join('\r\n');
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="user_emails_${timestamp}.csv"`);
+      return res.send(csv);
+    }
+
+    const excelBuffer = await generateUsersExcel(users);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="user_emails_${timestamp}.xlsx"`);
+    res.setHeader('Content-Length', excelBuffer.length);
+    return res.send(Buffer.from(excelBuffer));
+  } catch (error) {
+    console.error('Export emails error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error exporting user emails'
     });
   }
 });

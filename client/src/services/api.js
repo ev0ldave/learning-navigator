@@ -59,7 +59,11 @@ export const usersAPI = {
   updateAvailability: (id, availability) => 
     api.put(`/users/${id}/availability`, { availability }),
   deactivate: (id) => api.delete(`/users/${id}`),
-  registerUser: (data) => api.post('/users/register', data)
+  registerUser: (data) => api.post('/users/register', data),
+  exportEmails: (params) => api.get('/users/export/emails', {
+    params,
+    responseType: 'arraybuffer'
+  })
 };
 
 // Meeting endpoints

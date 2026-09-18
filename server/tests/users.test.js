@@ -147,6 +147,85 @@ describe('Users Routes', () => {
     });
   });
 
+  describe('GET /api/users/export/emails', () => {
+    beforeEach(async () => {
+      await User.create([
+        {
+          email: 'student2@test.com',
+          firstName: 'Second',
+          lastName: 'Student',
+          role: 'student',
+          isActive: true
+        },
+        {
+          email: 'student3@test.com',
+          firstName: 'Third',
+          lastName: 'Student',
+          role: 'student',
+          isActive: true
+        }
+      ]);
+    });
+
+    it('should export all user emails as xlsx for a navigator', async () => {
+      const res = await request(app)
+        .get('/api/users/export/emails')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain('spreadsheetml');
+      expect(res.headers['content-disposition']).toContain('user_emails_');
+      expect(res.headers['content-disposition']).toContain('.xlsx');
+      expect(Number(res.headers['content-length'])).toBeGreaterThan(0);
+    });
+
+    it('should export all user emails as xlsx for an admin', async () => {
+      const res = await request(app)
+        .get('/api/users/export/emails')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain('spreadsheetml');
+      expect(Number(res.headers['content-length'])).toBeGreaterThan(0);
+    });
+
+    it('should export user emails as csv when format=csv', async () => {
+      const res = await request(app)
+        .get('/api/users/export/emails?format=csv')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain('text/csv');
+      expect(res.headers['content-disposition']).toContain('.csv');
+      expect(res.text).toContain('First Name');
+      expect(res.text).toContain('student2@test.com');
+      expect(res.text).toContain('student3@test.com');
+    });
+
+    it('should filter exported emails by role', async () => {
+      const res = await request(app)
+        .get('/api/users/export/emails?format=csv&role=student')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200);
+
+      expect(res.text).toContain('student2@test.com');
+      expect(res.text).not.toContain('navigator@test.com');
+    });
+
+    it('should reject student access', async () => {
+      await request(app)
+        .get('/api/users/export/emails')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .expect(403);
+    });
+
+    it('should reject unauthenticated access', async () => {
+      await request(app)
+        .get('/api/users/export/emails')
+        .expect(401);
+    });
+  });
+
   describe('GET /api/users/navigators', () => {
     beforeEach(async () => {
       await User.create({

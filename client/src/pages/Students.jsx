@@ -25,7 +25,7 @@ import {
   Select,
   MenuItem
 } from '@mui/material';
-import { Search as SearchIcon, Person as PersonIcon, PersonAdd as PersonAddIcon } from '@mui/icons-material';
+import { Search as SearchIcon, Person as PersonIcon, PersonAdd as PersonAddIcon, Download as DownloadIcon } from '@mui/icons-material';
 import { usersAPI } from '../services/api';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -104,6 +104,27 @@ const Students = () => {
     }
   };
 
+  const handleExportEmails = async () => {
+    try {
+      const response = await usersAPI.exportEmails();
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const timestamp = new Date().toISOString().split('T')[0];
+      link.download = `user_emails_${timestamp}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      showSuccess('User emails exported');
+    } catch (err) {
+      showError('Failed to export user emails');
+    }
+  };
+
   const filteredStudents = students.filter(student => {
     if (!search) return true;
     const searchLower = search.toLowerCase();
@@ -118,13 +139,22 @@ const Students = () => {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h4">Students</Typography>
-        <Button
-          variant="contained"
-          startIcon={<PersonAddIcon />}
-          onClick={() => setRegisterDialogOpen(true)}
-        >
-          Register Student
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportEmails}
+          >
+            Export Emails
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<PersonAddIcon />}
+            onClick={() => setRegisterDialogOpen(true)}
+          >
+            Register Student
+          </Button>
+        </Box>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
