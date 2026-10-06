@@ -132,7 +132,7 @@ variable "admin_email" {
 variable "admin_reader_emails" {
   description = "Emails granted the read-only admin_reader (view as) role"
   type        = list(string)
-  default     = []
+  default     = ["reader1@example.edu", "student2@example.com"]
 }
 
 variable "allowed_domain" {

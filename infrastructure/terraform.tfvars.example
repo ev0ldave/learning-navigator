@@ -53,7 +53,8 @@ email_from     = "Learning Navigator <your-verified-sender@example.com>"  # Must
 # Admin Configuration
 admin_email    = "admin@example.com"
 allowed_domain = "students.example.edu"
-admin_reader_emails = ["reader1@example.edu", "student2@example.com"]
+# Optional: overrides the default read-only "view as" accounts in variables.tf
+# admin_reader_emails = ["reader@example.com"]
 
 # MongoDB Configuration (optional overrides)
 mongodb_region        = "US_WEST_2"  # AWS region for free tier

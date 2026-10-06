@@ -184,6 +184,16 @@ describe('admin_reader read-only enforcement', () => {
 });
 
 describe('admin_reader impersonation', () => {
+  it('allows the impersonation header in CORS preflight requests', async () => {
+    const res = await request(app)
+      .options('/api/auth/me')
+      .set('Origin', 'http://localhost:3000')
+      .set('Access-Control-Request-Method', 'GET')
+      .set('Access-Control-Request-Headers', 'authorization,x-impersonate-user-id');
+
+    expect(res.headers['access-control-allow-headers']).toMatch(/x-impersonate-user-id/i);
+  });
+
   it('returns the reader as themselves when not impersonating', async () => {
     const res = await request(app)
       .get('/api/auth/me')
