@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
-const { isAuthenticated, getJwtSecret } = require('../middleware/auth');
+const { isAuthenticated, requireAdminReader, getJwtSecret } = require('../middleware/auth');
 const { isEmailAllowed, determineRole, TEST_ACCOUNTS } = require('../config/passport');
 
 // Generate JWT token
@@ -218,10 +218,25 @@ router.get('/me', isAuthenticated, async (req, res) => {
     
     // Check if we should prompt for phone number (first login, no phone set)
     const promptForPhone = !user.phone && !user.phonePromptShown;
-    
+
+    // When a read-only viewer is impersonating, surface both the effective
+    // (viewed) user and the real acting account so the client can render the
+    // site as the target while keeping the "view as" controls available.
+    const realUser = req.isImpersonating
+      ? {
+          _id: req.realUser._id,
+          email: req.realUser.email,
+          firstName: req.realUser.firstName,
+          lastName: req.realUser.lastName,
+          role: req.realUser.role
+        }
+      : null;
+
     res.json({
       success: true,
       user,
+      realUser,
+      isImpersonating: !!req.isImpersonating,
       promptForPhone
     });
   } catch (error) {
@@ -229,6 +244,40 @@ router.get('/me', isAuthenticated, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching user'
+    });
+  }
+});
+
+// @route   GET /api/auth/impersonatable-users
+// @desc    List users a read-only viewer can view the site as
+// @access  Private/AdminReader
+router.get('/impersonatable-users', isAuthenticated, requireAdminReader, async (req, res) => {
+  try {
+    const { role, search } = req.query;
+
+    const query = { isActive: true, role: { $ne: 'admin_reader' } };
+    if (role && ['student', 'learning_navigator', 'administrator'].includes(role)) {
+      query.role = role;
+    }
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const users = await User.find(query)
+      .select('firstName lastName email role')
+      .sort({ role: 1, firstName: 1, lastName: 1 })
+      .limit(200);
+
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error('List impersonatable users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching users'
     });
   }
 });

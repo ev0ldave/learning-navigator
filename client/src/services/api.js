@@ -16,6 +16,12 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // When a read-only viewer is impersonating, forward the target user id so
+    // the server renders data as that user sees it.
+    const impersonateUserId = localStorage.getItem('impersonateUserId');
+    if (impersonateUserId) {
+      config.headers['X-Impersonate-User-Id'] = impersonateUserId;
+    }
     return config;
   },
   (error) => {

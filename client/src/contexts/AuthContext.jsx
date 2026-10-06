@@ -13,6 +13,8 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [realUser, setRealUser] = useState(null);
+  const [isImpersonating, setIsImpersonating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showPhonePrompt, setShowPhonePrompt] = useState(false);
@@ -29,6 +31,8 @@ export const AuthProvider = ({ children }) => {
       const response = await api.get('/auth/me');
       if (response.data.success) {
         setUser(response.data.user);
+        setRealUser(response.data.realUser || null);
+        setIsImpersonating(!!response.data.isImpersonating);
         setIsAuthenticated(true);
         // Check if we should prompt for phone number
         if (response.data.promptForPhone) {
@@ -38,7 +42,10 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Auth check failed:', error);
       localStorage.removeItem('token');
+      localStorage.removeItem('impersonateUserId');
       setUser(null);
+      setRealUser(null);
+      setIsImpersonating(false);
       setIsAuthenticated(false);
     } finally {
       setLoading(false);
@@ -97,7 +104,10 @@ export const AuthProvider = ({ children }) => {
       console.error('Logout error:', error);
     } finally {
       localStorage.removeItem('token');
+      localStorage.removeItem('impersonateUserId');
       setUser(null);
+      setRealUser(null);
+      setIsImpersonating(false);
       setIsAuthenticated(false);
     }
   };
@@ -143,9 +153,26 @@ export const AuthProvider = ({ children }) => {
   const isAdmin = () => user?.role === 'administrator';
   const isNavigator = () => ['learning_navigator', 'administrator'].includes(user?.role);
   const isStudent = () => user?.role === 'student';
+  // The real acting account is a read-only viewer, regardless of who it is
+  // currently impersonating.
+  const isAdminReader = () => (realUser?.role || user?.role) === 'admin_reader';
+
+  // Start viewing the site as the selected user (read-only viewers only).
+  const startImpersonation = async (userId) => {
+    localStorage.setItem('impersonateUserId', userId);
+    await checkAuth();
+  };
+
+  // Return to the real account's own view.
+  const stopImpersonation = async () => {
+    localStorage.removeItem('impersonateUserId');
+    await checkAuth();
+  };
 
   const value = {
     user,
+    realUser,
+    isImpersonating,
     loading,
     isAuthenticated,
     showPhonePrompt,
@@ -159,7 +186,10 @@ export const AuthProvider = ({ children }) => {
     savePhoneNumber,
     isAdmin,
     isNavigator,
-    isStudent
+    isStudent,
+    isAdminReader,
+    startImpersonation,
+    stopImpersonation
   };
 
   return (

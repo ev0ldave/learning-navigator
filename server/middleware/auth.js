@@ -70,15 +70,73 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
+// Methods that never mutate server state.
+const READ_ONLY_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+
+// Applies the read-only "view as" behaviour for admin_reader accounts.
+// Such accounts may impersonate any user (for read-only viewing) and are
+// blocked from performing any state-changing request.
+const applyAdminReaderContext = async (req, res, next) => {
+  try {
+    if (!req.user || req.user.role !== 'admin_reader') {
+      return next();
+    }
+
+    // Keep a reference to the real acting account for auditing/UI.
+    req.realUser = req.user;
+
+    // Hard read-only guard. Auth control routes (logout, phone prompt) are
+    // exempt so the account can still manage its own session.
+    const isMutating = !READ_ONLY_METHODS.includes(req.method.toUpperCase());
+    if (isMutating && req.baseUrl !== '/api/auth') {
+      return res.status(403).json({
+        success: false,
+        message: 'This is a read-only account and cannot modify data.'
+      });
+    }
+
+    // Optional impersonation: view the site as the selected user.
+    const targetId = req.headers['x-impersonate-user-id'];
+    if (targetId && mongoose.Types.ObjectId.isValid(targetId)) {
+      const target = await User.findById(targetId);
+      if (target && target.isActive && target.role !== 'admin_reader') {
+        req.user = target;
+        req.isImpersonating = true;
+      }
+    }
+
+    next();
+  } catch (error) {
+    console.error('Admin reader context error:', error);
+    res.status(500).json({ success: false, message: 'Authentication error' });
+  }
+};
+
 // Check if user is authenticated (using session or JWT)
 const isAuthenticated = async (req, res, next) => {
   // Check for session-based auth first
   if (req.isAuthenticated && req.isAuthenticated() && req.user) {
-    return next();
+    return applyAdminReaderContext(req, res, next);
   }
   
   // Fall back to JWT auth
-  return verifyToken(req, res, next);
+  return verifyToken(req, res, (err) => {
+    if (err) return next(err);
+    return applyAdminReaderContext(req, res, next);
+  });
+};
+
+// Require the real acting account to be a read-only viewer (admin_reader).
+// Works whether or not the account is currently impersonating another user.
+const requireAdminReader = (req, res, next) => {
+  const actingRole = (req.realUser || req.user)?.role;
+  if (actingRole !== 'admin_reader') {
+    return res.status(403).json({
+      success: false,
+      message: 'You do not have permission to access this resource'
+    });
+  }
+  next();
 };
 
 // Role-based access control
@@ -204,6 +262,7 @@ module.exports = {
   requireStudent,
   requireNavigator,
   requireAdmin,
+  requireAdminReader,
   requireOwnershipOrAdmin,
   requireStudentAccess,
   validateObjectId,

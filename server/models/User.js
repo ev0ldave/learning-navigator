@@ -33,7 +33,9 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['student', 'learning_navigator', 'administrator'],
+    // admin_reader is a read-only account that can view the site as any other
+    // user (impersonation) without being able to modify data.
+    enum: ['student', 'learning_navigator', 'administrator', 'admin_reader'],
     default: 'student'
   },
   phone: {

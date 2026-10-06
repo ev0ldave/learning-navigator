@@ -129,6 +129,12 @@ variable "admin_email" {
   type        = string
 }
 
+variable "admin_reader_emails" {
+  description = "Emails granted the read-only admin_reader (view as) role"
+  type        = list(string)
+  default     = []
+}
+
 variable "allowed_domain" {
   description = "Allowed email domain for registration"
   type        = string

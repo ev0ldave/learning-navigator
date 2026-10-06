@@ -47,6 +47,7 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-Learning Navigator <noreply@learningnavigator.com>}
       CLIENT_URL: ${CLIENT_URL:-http://localhost:3000}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@students.example.edu}
+      ADMIN_READER_EMAILS: ${ADMIN_READER_EMAILS:-}
       ALLOWED_DOMAIN: ${ALLOWED_DOMAIN:-students.example.edu}
       TEST_STUDENT_EMAIL_1: ${TEST_STUDENT_EMAIL_1:-student1@example.com}
       TEST_STUDENT_EMAIL_2: ${TEST_STUDENT_EMAIL_2:-student2@example.com}

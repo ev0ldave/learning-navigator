@@ -72,6 +72,9 @@ resource "render_web_service" "backend" {
     ADMIN_EMAIL = {
       value = var.admin_email
     }
+    ADMIN_READER_EMAILS = {
+      value = join(",", var.admin_reader_emails)
+    }
     ALLOWED_DOMAIN = {
       value = var.allowed_domain
     }

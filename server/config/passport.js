@@ -23,6 +23,15 @@ passport.deserializeUser(async (id, done) => {
 const ALLOWED_DOMAIN = process.env.ALLOWED_DOMAIN || 'students.example.edu';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@students.example.edu';
 
+// Read-only "view as" accounts, assigned via a comma-separated email allow-list.
+const ADMIN_READER_EMAILS = (process.env.ADMIN_READER_EMAILS || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
+
+const isAdminReaderEmail = (email) =>
+  !!email && ADMIN_READER_EMAILS.includes(email.toLowerCase());
+
 // Test accounts (only for development)
 const TEST_ACCOUNTS = [
   process.env.TEST_STUDENT_EMAIL_1 || 'student1@example.com',
@@ -42,7 +51,12 @@ const isEmailAllowed = (email) => {
       return true;
     }
   }
-  
+
+  // Allow-listed read-only viewer accounts (may be outside the allowed domain)
+  if (isAdminReaderEmail(emailLower)) {
+    return true;
+  }
+
   // Check if email is from allowed domain
   return emailLower.endsWith(`@${ALLOWED_DOMAIN}`);
 };
@@ -56,6 +70,11 @@ const determineRole = (email) => {
   // Administrator check
   if (emailLower === ADMIN_EMAIL.toLowerCase()) {
     return 'administrator';
+  }
+
+  // Read-only viewer check
+  if (isAdminReaderEmail(emailLower)) {
+    return 'admin_reader';
   }
   
   // Test student accounts in development
@@ -112,6 +131,12 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         user.googleRefreshToken = refreshToken || user.googleRefreshToken;
         if (googleTokenExpiry) user.googleTokenExpiry = googleTokenExpiry;
         user.lastLogin = new Date();
+        // Keep admin_reader in sync with the allow-list (grants and revokes on login)
+        if (isAdminReaderEmail(user.email)) {
+          user.role = 'admin_reader';
+        } else if (user.role === 'admin_reader') {
+          user.role = determineRole(user.email);
+        }
         await user.save();
         return done(null, user);
       }
@@ -184,5 +209,6 @@ async (email, password, done) => {
 module.exports = {
   isEmailAllowed,
   determineRole,
+  isAdminReaderEmail,
   TEST_ACCOUNTS
 };

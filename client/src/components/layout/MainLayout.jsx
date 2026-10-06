@@ -36,11 +36,13 @@ import {
   AdminPanelSettings as AdminIcon,
   Logout as LogoutIcon,
   ChevronLeft as ChevronLeftIcon,
-  DateRange as QuarterIcon
+  DateRange as QuarterIcon,
+  Visibility as VisibilityIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import NotificationPanel from '../notifications/NotificationPanel';
+import ViewAsSwitcher from '../admin/ViewAsSwitcher';
 
 const drawerWidth = 240;
 
@@ -50,7 +52,7 @@ const MainLayout = () => {
   const isNarrowMobile = useMediaQuery('(max-width:360px)');
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout, isNavigator, isAdmin } = useAuth();
+  const { user, logout, isNavigator, isAdmin, isImpersonating } = useAuth();
   const { unreadCount } = useNotification();
 
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -193,6 +195,8 @@ const MainLayout = () => {
           
           <Box sx={{ flexGrow: 1 }} />
           
+          <ViewAsSwitcher />
+
           <IconButton color="inherit" onClick={handleNotificationOpen}>
             <Badge badgeContent={unreadCount} color="error">
               <NotificationsIcon />
@@ -272,6 +276,26 @@ const MainLayout = () => {
         }}
       >
         <Toolbar />
+        {isImpersonating && (
+          <Box
+            sx={{
+              mb: 2,
+              p: 1.5,
+              borderRadius: 1,
+              bgcolor: 'warning.light',
+              color: 'warning.contrastText',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1
+            }}
+          >
+            <VisibilityIcon fontSize="small" />
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              Read-only preview — you are viewing the site as {user?.firstName} {user?.lastName}
+              {user?.role ? ` (${user.role.replace('_', ' ')})` : ''}.
+            </Typography>
+          </Box>
+        )}
         <Outlet />
       </Box>
 
