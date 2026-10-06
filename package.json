@@ -67,6 +67,9 @@
       "server/**/*.js",
       "!server/index.js"
     ],
+    "setupFiles": [
+      "<rootDir>/server/tests/setupEnv.js"
+    ],
     "testTimeout": 30000
   }
 }

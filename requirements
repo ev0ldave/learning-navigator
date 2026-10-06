@@ -37,8 +37,8 @@ Authentication/Authorization:
     - implement secure authentication using Google OAuth for students to create accounts and log in
     - ensure that only authorized users (students and learning navigators) can access their respective features and data
     - implement role-based access control to differentiate between student and learning navigator functionalities
-    - only accounts from students.example.edu should be allowed to register
-    - admin@students.example.edu should be the only account that can register as administrator
+    - only accounts from the configured ALLOWED_DOMAIN should be allowed to register
+    - the configured ADMIN_EMAIL should be the only account that can register as administrator
     - allow login from local test accounts for development and testing purposes, but ensure that these accounts are not used in production
     - JWT-based session management with configurable expiration (default: 7 days)
     - Passport.js for authentication strategy management
@@ -83,13 +83,10 @@ Testing:
     - Supertest for API endpoint testing
     - MongoDB Memory Server for isolated database testing
     - create 2 local student accounts for development and testing purposes, ensuring that these accounts are not used in production:
-        - Test Student Account:
-            - Email: student1@example.com
-        - Test Student Account 2:
-            - Email: student2@example.com
+        - Test Student Account: TEST_STUDENT_EMAIL_1
+        - Test Student Account 2: TEST_STUDENT_EMAIL_2
     - create a local administrator account for development and testing purposes, ensuring that this account is not used in production:
-        - Test Administrator Account:
-            - Email: admin@students.example.edu
+        - Test Administrator Account: TEST_ADMIN_EMAIL
 
 # =============================================================================
 # Tech Stack
@@ -190,7 +187,7 @@ Environment Variables:
         - EMAIL_PASSWORD: SMTP password (app password)
         - EMAIL_FROM: Sender email address
         - ADMIN_EMAIL: Administrator email
-        - ALLOWED_DOMAIN: Allowed email domain (students.example.edu)
+        - ALLOWED_DOMAIN: Allowed email domain
         - CLIENT_URL: Frontend URL for CORS
 
     Frontend (client):

@@ -51,10 +51,9 @@ email_password = "your-brevo-smtp-key"    # Brevo SMTP key / master password, NO
 email_from     = "Learning Navigator <your-verified-sender@example.com>"  # Must be a Verified Sender in Brevo
 
 # Admin Configuration
-admin_email    = "admin@example.com"
-allowed_domain = "students.example.edu"
-# Optional: overrides the default read-only "view as" accounts in variables.tf
-# admin_reader_emails = ["reader@example.com"]
+admin_email         = "admin@students.example.edu"
+allowed_domain      = "students.example.edu"
+admin_reader_emails = ["reader1@example.edu", "reader2@example.com"]  # Read-only "view as" accounts; use [] for none
 
 # MongoDB Configuration (optional overrides)
 mongodb_region        = "US_WEST_2"  # AWS region for free tier

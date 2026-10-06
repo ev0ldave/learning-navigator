@@ -20,8 +20,12 @@ passport.deserializeUser(async (id, done) => {
 });
 
 // Allowed domain for registration
-const ALLOWED_DOMAIN = process.env.ALLOWED_DOMAIN || 'students.example.edu';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@students.example.edu';
+const ALLOWED_DOMAIN = (process.env.ALLOWED_DOMAIN || '').trim().toLowerCase();
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+
+if (!ALLOWED_DOMAIN) {
+  console.warn('ALLOWED_DOMAIN is not set; only allow-listed accounts can sign in.');
+}
 
 // Read-only "view as" accounts, assigned via a comma-separated email allow-list.
 const ADMIN_READER_EMAILS = (process.env.ADMIN_READER_EMAILS || '')
@@ -34,10 +38,10 @@ const isAdminReaderEmail = (email) =>
 
 // Test accounts (only for development)
 const TEST_ACCOUNTS = [
-  process.env.TEST_STUDENT_EMAIL_1 || 'student1@example.com',
-  process.env.TEST_STUDENT_EMAIL_2 || 'student2@example.com',
-  process.env.TEST_ADMIN_EMAIL || 'admin@students.example.edu'
-];
+  process.env.TEST_STUDENT_EMAIL_1,
+  process.env.TEST_STUDENT_EMAIL_2,
+  process.env.TEST_ADMIN_EMAIL
+].filter(Boolean);
 
 // Check if email is allowed
 const isEmailAllowed = (email) => {
@@ -58,7 +62,7 @@ const isEmailAllowed = (email) => {
   }
 
   // Check if email is from allowed domain
-  return emailLower.endsWith(`@${ALLOWED_DOMAIN}`);
+  return !!ALLOWED_DOMAIN && emailLower.endsWith(`@${ALLOWED_DOMAIN}`);
 };
 
 // Determine role based on email
@@ -68,7 +72,7 @@ const determineRole = (email) => {
   const emailLower = email.toLowerCase();
   
   // Administrator check
-  if (emailLower === ADMIN_EMAIL.toLowerCase()) {
+  if (ADMIN_EMAIL && emailLower === ADMIN_EMAIL) {
     return 'administrator';
   }
 
@@ -76,18 +80,7 @@ const determineRole = (email) => {
   if (isAdminReaderEmail(emailLower)) {
     return 'admin_reader';
   }
-  
-  // Test student accounts in development
-  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
-    const testStudentEmails = [
-      (process.env.TEST_STUDENT_EMAIL_1 || 'student1@example.com').toLowerCase(),
-      (process.env.TEST_STUDENT_EMAIL_2 || 'student2@example.com').toLowerCase()
-    ];
-    if (testStudentEmails.includes(emailLower)) {
-      return 'student';
-    }
-  }
-  
+
   // Default role is student
   return 'student';
 };

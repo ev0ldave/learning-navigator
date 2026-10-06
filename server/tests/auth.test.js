@@ -350,7 +350,7 @@ describe('Validation', () => {
 });
 
 describe('Second Test Account', () => {
-  it('should register student2@example.com as student', async () => {
+  it('should register the second test student account', async () => {
     const res = await request(app)
       .post('/api/auth/local/register')
       .send({

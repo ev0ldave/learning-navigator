@@ -40,7 +40,7 @@ const Login = () => {
   useEffect(() => {
     const authError = searchParams.get('error');
     if (authError === 'auth_failed') {
-      setError('Login failed. Only @students.example.edu accounts are allowed.');
+      setError('Login failed. Your account is not allowed to sign in.');
     }
   }, [searchParams]);
 
@@ -235,8 +235,8 @@ const Login = () => {
                 color="text.secondary"
                 sx={{ display: 'block', mt: 3, textAlign: 'center', wordBreak: 'break-word' }}
               >
-                Test accounts (dev only):<br />
-                student1@example.com | student2@example.com | admin@students.example.edu
+                Test accounts (dev only) are set by TEST_STUDENT_EMAIL_1,<br />
+                TEST_STUDENT_EMAIL_2, and TEST_ADMIN_EMAIL on the server.
               </Typography>
             </>
           )}

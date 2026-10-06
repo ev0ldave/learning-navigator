@@ -27,12 +27,15 @@ Terraform configuration to deploy Learning Navigator on free tiers:
 5. **Google Cloud Console**
    - Create OAuth 2.0 credentials
    - Add authorized redirect URI: `https://<project>-backend.onrender.com/api/auth/google/callback`
+   - If the consent screen is in **Testing** mode, add every account that signs in (including admin readers outside your domain) as a test user
+
+6. **Terraform 1.5+** (`< 2.0`)
 
 ## Setup
 
 1. **Install Terraform**
    ```bash
-   brew install terraform  # macOS
+   brew install terraform  # macOS / Linuxbrew
    # or download from terraform.io
    ```
 
@@ -57,6 +60,22 @@ Terraform configuration to deploy Learning Navigator on free tiers:
    ```bash
    terraform apply
    ```
+
+## Application Settings
+
+Key variables in `terraform.tfvars` (see `terraform.tfvars.example` for the full list):
+
+| Variable | Description |
+|----------|-------------|
+| `admin_email` | Email automatically assigned the administrator role |
+| `admin_reader_emails` | List of emails assigned the read-only `admin_reader` ("view as") role (required; use `[]` for none) |
+| `allowed_domain` | Email domain allowed to sign in (required) |
+| `email_host` / `email_port` / `email_user` / `email_password` / `email_from` | SMTP settings (Brevo on port 2525, because Render free tier blocks 25/465/587) |
+| `google_client_id` / `google_client_secret` | Google OAuth credentials |
+
+`SESSION_SECRET`, `JWT_SECRET`, and the MongoDB password are generated automatically.
+
+**Terraform owns the Render environment.** Any variable added only in the Render dashboard is removed on the next `terraform apply`. Always add new settings to Terraform as well.
 
 ## Outputs
 
@@ -93,8 +112,10 @@ terraform output -json secrets  # View sensitive values
 ## Updating
 
 After code changes:
-1. Push to GitHub
+1. Push to GitHub (`main` branch)
 2. Render and Vercel auto-deploy on push
+   - Render only redeploys when `server/**` or `package.json` changes
+   - Render uses Node 20+, pinned by `engines` in the root `package.json`
 
 To update infrastructure:
 ```bash
