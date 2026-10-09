@@ -8,7 +8,7 @@ import {
 } from '@mui/material';
 import { 
   Add as AddIcon, Assessment as ReportIcon, Download as DownloadIcon, 
-  Delete as DeleteIcon, ExpandMore as ExpandMoreIcon,
+  Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, TuneOutlined as TuneIcon,
   BarChart as ChartIcon, Schedule as TimeIcon, Group as GroupIcon,
   TrendingUp as TrendIcon, Visibility as ViewIcon, PictureAsPdf as PdfIcon,
   GridOn as ExcelIcon
