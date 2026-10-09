@@ -913,6 +913,24 @@ describe('Reports Routes', () => {
       expect(await Report.countDocuments()).toBe(0);
     });
 
+    it('should count shared notes', async () => {
+      await createActiveQuarter();
+      const noteBase = { student: student._id, navigator: navigator._id, createdBy: navigator._id };
+      await Note.create([
+        { ...noteBase, title: 'Shared 1', sharedContent: 'a', type: 'shared', sharedAt: new Date() },
+        { ...noteBase, title: 'Shared 2', sharedContent: 'b', type: 'shared', sharedAt: new Date() },
+        { ...noteBase, title: 'Private', privateContent: 'c', type: 'private' }
+      ]);
+
+      const res = await request(app)
+        .get('/api/reports/live')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200);
+
+      expect(res.body.report.data.summary.noteCount).toBe(3);
+      expect(res.body.report.data.summary.sharedNotes).toBe(2);
+    });
+
     it('should only include the requesting navigator\'s meetings', async () => {
       await createActiveQuarter();
       const otherNavigator = await User.create({

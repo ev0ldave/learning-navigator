@@ -76,7 +76,7 @@ const DEFAULT_METRICS = [
       : 0
   },
   { id: 'noteCount', compute: ({ notes }) => notes.length },
-  { id: 'sharedNotes', compute: ({ notes }) => notes.filter(n => n.sharedWithStudent).length },
+  { id: 'sharedNotes', compute: ({ notes }) => notes.filter(n => n.type === 'shared').length },
   { id: 'meetingTypes', compute: ({ meetings, formatter }) => countByField(meetings, 'location', formatter) },
   { id: 'statusBreakdown', compute: ({ meetings, formatter }) => countByField(meetings, 'status', formatter) },
   { id: 'weeklyTrend', compute: ({ meetings }) => calculateTrend(meetings, 'week') },
