@@ -71,9 +71,10 @@ const DEFAULT_METRICS = [
   { id: 'totalDuration', compute: ({ aggregates }) => aggregates.totalDuration },
   {
     id: 'averageDuration',
-    compute: ({ aggregates }) => aggregates.totalSessions > 0
-      ? Math.round(aggregates.totalDuration / aggregates.totalSessions)
-      : 0
+    compute: ({ aggregates }) => {
+      const counted = aggregates.totalSessions - aggregates.cancelledSessions;
+      return counted > 0 ? Math.round(aggregates.totalDuration / counted) : 0;
+    }
   },
   { id: 'noteCount', compute: ({ notes }) => notes.length },
   { id: 'sharedNotes', compute: ({ notes }) => notes.filter(n => n.type === 'shared').length },
@@ -135,7 +136,9 @@ class MetricsCalculator {
       completedSessions: meetings.filter(m => m.status === 'completed').length,
       cancelledSessions: meetings.filter(m => m.status === 'cancelled').length,
       noShowSessions: meetings.filter(m => m.status === 'no_show').length,
-      totalDuration: meetings.reduce((sum, m) => sum + (m.duration || 0), 0)
+      totalDuration: meetings
+        .filter(m => m.status !== 'cancelled')
+        .reduce((sum, m) => sum + (m.duration || 0), 0)
     };
   }
 }

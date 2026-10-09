@@ -195,7 +195,9 @@ reportSchema.statics.generateIndividualReport = async function(navigatorId, stud
             $group: {
               _id: null,
               totalSessions: { $sum: 1 },
-              totalDuration: { $sum: { $ifNull: ['$duration', 0] } },
+              totalDuration: {
+                $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 0, { $ifNull: ['$duration', 0] }] }
+              },
               completedSessions: {
                 $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
               },
@@ -236,8 +238,9 @@ reportSchema.statics.generateIndividualReport = async function(navigatorId, stud
   const sessions = meetingStats?.sessions || [];
   
   // Calculate derived fields
-  const averageSessionDuration = summary.totalSessions > 0 
-    ? Math.round(summary.totalDuration / summary.totalSessions) 
+  const heldSessions = summary.totalSessions - summary.cancelledSessions;
+  const averageSessionDuration = heldSessions > 0
+    ? Math.round(summary.totalDuration / heldSessions)
     : 0;
   const attendanceRate = summary.totalSessions > 0 
     ? Math.round((summary.completedSessions / summary.totalSessions) * 100) 

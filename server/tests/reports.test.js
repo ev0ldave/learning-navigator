@@ -931,6 +931,33 @@ describe('Reports Routes', () => {
       expect(res.body.report.data.summary.sharedNotes).toBe(2);
     });
 
+    it('should exclude cancelled sessions from duration totals', async () => {
+      await createActiveQuarter();
+      const fetchSummary = async () => (await request(app)
+        .get('/api/reports/live')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200)).body.report.data.summary;
+
+      const before = await fetchSummary();
+      await Meeting.create({
+        student: student._id,
+        navigator: navigator._id,
+        title: 'Cancelled with duration',
+        startTime: new Date(Date.now() - 5 * DAY),
+        endTime: new Date(Date.now() - 5 * DAY + 45 * 60 * 1000),
+        duration: 45,
+        status: 'cancelled',
+        createdBy: student._id
+      });
+      const after = await fetchSummary();
+
+      expect(after.cancelledSessions).toBe(before.cancelledSessions + 1);
+      expect(after.totalDuration).toBe(before.totalDuration);
+      expect(after.averageDuration).toBe(
+        Math.round(after.totalDuration / (after.totalSessions - after.cancelledSessions))
+      );
+    });
+
     it('should only include the requesting navigator\'s meetings', async () => {
       await createActiveQuarter();
       const otherNavigator = await User.create({

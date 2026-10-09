@@ -132,7 +132,10 @@ class ReportService {
     const completedSessions = meetings.filter(m => m.status === 'completed').length;
     const cancelledSessions = meetings.filter(m => m.status === 'cancelled').length;
     const noShowSessions = meetings.filter(m => m.status === 'no_show').length;
-    const totalDuration = meetings.reduce((sum, m) => sum + (m.duration || 0), 0);
+    const totalDuration = meetings
+      .filter(m => m.status !== 'cancelled')
+      .reduce((sum, m) => sum + (m.duration || 0), 0);
+    const heldSessions = totalSessions - cancelledSessions;
 
     // Group by student
     const studentStats = {};
@@ -169,7 +172,7 @@ class ReportService {
           cancelledSessions,
           noShowSessions,
           totalDuration,
-          averageSessionDuration: totalSessions > 0 ? Math.round(totalDuration / totalSessions) : 0
+          averageSessionDuration: heldSessions > 0 ? Math.round(totalDuration / heldSessions) : 0
         },
         sessions: meetings.map(m => {
           const studentName = m.student ? `${m.student.firstName || ''} ${m.student.lastName || ''}`.trim() : 'Unknown';
@@ -223,7 +226,9 @@ class ReportService {
           completedSessions: meetings.filter(m => m.status === 'completed').length,
           cancelledSessions: meetings.filter(m => m.status === 'cancelled').length,
           noShowSessions: meetings.filter(m => m.status === 'no_show').length,
-          totalDuration: meetings.reduce((sum, m) => sum + (m.duration || 0), 0)
+          totalDuration: meetings
+            .filter(m => m.status !== 'cancelled')
+            .reduce((sum, m) => sum + (m.duration || 0), 0)
         },
         sessions: meetings.map(m => ({
           meeting: m._id,
