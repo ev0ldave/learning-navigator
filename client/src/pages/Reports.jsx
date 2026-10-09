@@ -4,20 +4,20 @@ import {
   CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Select, MenuItem, Grid, Checkbox, FormControlLabel,
   Chip, OutlinedInput, IconButton, Tooltip, Accordion, AccordionSummary,
-  AccordionDetails, FormGroup, Divider, Paper, Switch, Alert, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, Menu, ListItemIcon
+  AccordionDetails, FormGroup, Divider, Paper, Switch, Alert, Menu, ListItemIcon
 } from '@mui/material';
 import { 
   Add as AddIcon, Assessment as ReportIcon, Download as DownloadIcon, 
-  Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, TuneOutlined as TuneIcon,
+  Delete as DeleteIcon, ExpandMore as ExpandMoreIcon,
   BarChart as ChartIcon, Schedule as TimeIcon, Group as GroupIcon,
   TrendingUp as TrendIcon, Visibility as ViewIcon, PictureAsPdf as PdfIcon,
-  GridOn as ExcelIcon, Close as CloseIcon
+  GridOn as ExcelIcon
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers';
 import { format, subMonths } from 'date-fns';
 import { reportsAPI, usersAPI } from '../services/api';
 import { useNotification } from '../contexts/NotificationContext';
+import ReportDashboard from '../components/reports/ReportDashboard';
 
 // Category icons for metrics
 const categoryIcons = {
@@ -27,256 +27,6 @@ const categoryIcons = {
   engagement: <GroupIcon fontSize="small" />,
   breakdown: <ChartIcon fontSize="small" />,
   trends: <TrendIcon fontSize="small" />
-};
-
-// Format metric labels for display
-const formatMetricLabel = (key) => {
-  return key
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, str => str.toUpperCase())
-    .trim();
-};
-
-// Report Viewer Component
-const ReportViewer = ({ report, onClose, onExport }) => {
-  if (!report) return null;
-
-  const { data, title, type, scope, createdAt } = report;
-  const summary = data?.summary || {};
-  const grouped = data?.grouped || [];
-  const sessions = data?.sessions || [];
-
-  return (
-    <Dialog open={!!report} onClose={onClose} maxWidth="lg" fullWidth>
-      <DialogTitle>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Box>
-            <Typography variant="h6">{title}</Typography>
-            <Typography variant="caption" color="text.secondary">
-              {type.replace(/_/g, ' ')} • Generated {format(new Date(createdAt), 'MMM d, yyyy')}
-            </Typography>
-          </Box>
-          <IconButton onClick={onClose} size="small">
-            <CloseIcon />
-          </IconButton>
-        </Box>
-      </DialogTitle>
-      <DialogContent dividers>
-        {/* Report Period */}
-        <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: 'grey.50' }}>
-          <Typography variant="subtitle2" color="text.secondary">
-            Report Period
-          </Typography>
-          <Typography variant="body1">
-            {format(new Date(scope.startDate), 'MMM d, yyyy')} — {format(new Date(scope.endDate), 'MMM d, yyyy')}
-          </Typography>
-        </Paper>
-
-        {/* Summary Metrics */}
-        {Object.keys(summary).length > 0 && (
-          <Box mb={3}>
-            <Typography variant="h6" gutterBottom>Summary</Typography>
-            <Grid container spacing={2}>
-              {Object.entries(summary).map(([key, value]) => {
-                // Skip array/object values in summary cards
-                if (typeof value === 'object') return null;
-                return (
-                  <Grid item xs={6} sm={4} md={3} key={key}>
-                    <Paper variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
-                      <Typography variant="h4" color="primary">
-                        {typeof value === 'number' && key.includes('Rate') ? `${value}%` : value}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {formatMetricLabel(key)}
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                );
-              })}
-            </Grid>
-            
-            {/* Breakdown metrics (arrays in summary) */}
-            {Object.entries(summary).map(([key, value]) => {
-              if (!Array.isArray(value) || value.length === 0) return null;
-              
-              // Handle trend data (weeklyTrend, monthlyTrend)
-              if (key.includes('Trend') && value[0]?.date !== undefined) {
-                return (
-                  <Box key={key} mt={2}>
-                    <Typography variant="subtitle1" gutterBottom>
-                      {formatMetricLabel(key)}
-                    </Typography>
-                    <TableContainer component={Paper} variant="outlined">
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow sx={{ bgcolor: 'grey.100' }}>
-                            <TableCell><strong>Date</strong></TableCell>
-                            <TableCell align="right"><strong>Total</strong></TableCell>
-                            <TableCell align="right"><strong>Completed</strong></TableCell>
-                            <TableCell align="right"><strong>Cancelled</strong></TableCell>
-                            <TableCell align="right"><strong>No Show</strong></TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {value.map((item, idx) => (
-                            <TableRow key={idx} hover>
-                              <TableCell>{item.date}</TableCell>
-                              <TableCell align="right">{item.total}</TableCell>
-                              <TableCell align="right">{item.completed}</TableCell>
-                              <TableCell align="right">{item.cancelled}</TableCell>
-                              <TableCell align="right">{item.noShow}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  </Box>
-                );
-              }
-              
-              // Handle breakdown data (label/count format)
-              if (value[0]?.label === undefined) return null;
-              
-              return (
-                <Box key={key} mt={2}>
-                  <Typography variant="subtitle1" gutterBottom>
-                    {formatMetricLabel(key)}
-                  </Typography>
-                  <Grid container spacing={1}>
-                    {value.map((item, idx) => (
-                      <Grid item xs={6} sm={4} md={3} key={idx}>
-                        <Paper variant="outlined" sx={{ p: 1.5 }}>
-                          <Box display="flex" justifyContent="space-between" alignItems="center">
-                            <Typography variant="body2">{item.label}</Typography>
-                            <Box textAlign="right">
-                              <Typography variant="body1" fontWeight="medium">{item.count}</Typography>
-                              {item.percentage !== undefined && (
-                                <Typography variant="caption" color="text.secondary">
-                                  {item.percentage}%
-                                </Typography>
-                              )}
-                            </Box>
-                          </Box>
-                        </Paper>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Box>
-              );
-            })}
-          </Box>
-        )}
-
-        {/* Grouped Data */}
-        {grouped.length > 0 && (
-          <Box mb={3}>
-            <Typography variant="h6" gutterBottom>Grouped Data</Typography>
-            <TableContainer component={Paper} variant="outlined">
-              <Table size="small">
-                <TableHead>
-                  <TableRow sx={{ bgcolor: 'grey.100' }}>
-                    <TableCell><strong>Group</strong></TableCell>
-                    <TableCell align="right"><strong>Count</strong></TableCell>
-                    {grouped[0]?.metrics && Object.entries(grouped[0].metrics)
-                      .filter(([, val]) => typeof val !== 'object' || val === null)
-                      .map(([key]) => (
-                        <TableCell key={key} align="right">
-                          <strong>{formatMetricLabel(key)}</strong>
-                        </TableCell>
-                      ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {grouped.map((group, idx) => (
-                    <TableRow key={idx} hover>
-                      <TableCell>{group.label}</TableCell>
-                      <TableCell align="right">{group.count}</TableCell>
-                      {group.metrics && Object.entries(group.metrics)
-                        .filter(([, val]) => typeof val !== 'object' || val === null)
-                        .map(([key, val]) => (
-                          <TableCell key={key} align="right">
-                            {typeof val === 'number' && key.includes('Rate') ? `${val}%` : String(val)}
-                          </TableCell>
-                        ))}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Box>
-        )}
-
-        {/* Session Details */}
-        {sessions.length > 0 && (
-          <Box>
-            <Typography variant="h6" gutterBottom>
-              Session Details ({sessions.length} sessions)
-            </Typography>
-            <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 400 }}>
-              <Table size="small" stickyHeader>
-                <TableHead>
-                  <TableRow>
-                    <TableCell><strong>Date</strong></TableCell>
-                    <TableCell><strong>Student</strong></TableCell>
-                    <TableCell><strong>Status</strong></TableCell>
-                    <TableCell align="right"><strong>Duration</strong></TableCell>
-                    <TableCell><strong>Location</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {sessions.map((session, idx) => (
-                    <TableRow key={idx} hover>
-                      <TableCell>{format(new Date(session.date), 'MMM d, yyyy h:mm a')}</TableCell>
-                      <TableCell>{session.studentName || 'N/A'}</TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={session.status?.replace('_', ' ') || 'N/A'} 
-                          size="small"
-                          color={
-                            session.status === 'completed' ? 'success' :
-                            session.status === 'cancelled' ? 'error' :
-                            session.status === 'no_show' ? 'warning' : 'default'
-                          }
-                          variant="outlined"
-                        />
-                      </TableCell>
-                      <TableCell align="right">{session.duration || 0} min</TableCell>
-                      <TableCell>{session.location?.replace('_', ' ') || 'N/A'}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Box>
-        )}
-
-        {/* Empty state */}
-        {Object.keys(summary).length === 0 && grouped.length === 0 && sessions.length === 0 && (
-          <Box textAlign="center" py={4}>
-            <ReportIcon sx={{ fontSize: 48, color: 'text.secondary' }} />
-            <Typography color="text.secondary">No data available for this report</Typography>
-          </Box>
-        )}
-      </DialogContent>
-      <DialogActions sx={{ px: 3, py: 2 }}>
-        <Button onClick={onClose}>Close</Button>
-        <Button 
-          variant="outlined" 
-          startIcon={<ExcelIcon />}
-          onClick={() => onExport('xlsx')}
-        >
-          Export Excel
-        </Button>
-        <Button 
-          variant="contained" 
-          startIcon={<PdfIcon />}
-          onClick={() => onExport('pdf')}
-        >
-          Export PDF
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
 };
 
 const Reports = () => {
@@ -393,8 +143,13 @@ const Reports = () => {
   const handleExport = async (reportId, reportTitle, formatType) => {
     try {
       const response = await reportsAPI.export(reportId, formatType);
-      const mimeType = formatType === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-      const blob = new Blob([response.data], { type: mimeType });
+      const mimeTypes = {
+        pdf: 'application/pdf',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        json: 'application/json'
+      };
+      const content = formatType === 'json' ? JSON.stringify(response.data, null, 2) : response.data;
+      const blob = new Blob([content], { type: mimeTypes[formatType] });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -553,8 +308,9 @@ const Reports = () => {
       </Menu>
 
       {/* Report Viewer Dialog */}
-      <ReportViewer 
-        report={viewingReport} 
+      <ReportDashboard
+        key={viewingReport?._id}
+        report={viewingReport}
         onClose={() => setViewingReport(null)}
         onExport={handleExportFromViewer}
       />
