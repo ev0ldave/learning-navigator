@@ -102,7 +102,7 @@ Frontend:
     - date-fns for date manipulation
 
 Backend:
-    - Node.js with Express.js 4.x for handling server-side logic and API endpoints
+    - Node.js 24 with Express.js 5.x for handling server-side logic and API endpoints
     - Mongoose 7.x for MongoDB object modeling
     - Passport.js for authentication (Google OAuth 2.0 and local strategy)
     - express-validator for request validation
@@ -138,7 +138,7 @@ Local Development:
     - docker-compose for managing multi-container applications (MongoDB, server, client)
     - Dockerfile.server for Node.js backend container
     - Dockerfile.client for React frontend container
-    - Nodemon for development hot-reloading
+    - Node.js built-in watch mode (node --watch) for development hot-reloading
     - Concurrently for running server and client simultaneously
 
 Cloud Deployment (Infrastructure as Code with Terraform):

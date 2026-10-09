@@ -115,7 +115,7 @@ After code changes:
 1. Push to GitHub (`main` branch)
 2. Render and Vercel auto-deploy on push
    - Render only redeploys when `server/**` or `package.json` changes
-   - Render uses Node 20+, pinned by `engines` in the root `package.json`
+   - Render uses Node 24, pinned by `engines` in the root `package.json`
 
 To update infrastructure:
 ```bash

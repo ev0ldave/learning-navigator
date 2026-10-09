@@ -5,11 +5,11 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "server": "nodemon server/index.js",
+    "server": "node --watch server/index.js",
     "client": "npm start --prefix client",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "test": "jest --coverage",
-    "test:server": "jest --testPathPattern=server --coverage",
+    "test:server": "jest --testPathPatterns=server --coverage",
     "test:client": "npm test --prefix client",
     "build": "npm run build --prefix client",
     "docker:build": "docker-compose build",
@@ -51,13 +51,12 @@
     }
   },
   "engines": {
-    "node": ">=20"
+    "node": "24.x"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
-    "jest": "^29.7.0",
+    "jest": "^30.5.2",
     "mongodb-memory-server": "^10.1.4",
-    "nodemon": "^3.1.9",
     "supertest": "^7.0.0"
   },
   "jest": {

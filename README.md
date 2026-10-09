@@ -24,7 +24,7 @@ A comprehensive student-learning navigator scheduling and management application
 ## Tech Stack
 
 - **Frontend**: React 18 + Vite with Material-UI
-- **Backend**: Node.js 20+ with Express 5
+- **Backend**: Node.js 24 with Express 5
 - **Database**: MongoDB (Mongoose)
 - **Authentication**: Google OAuth + Local (development only), JWT
 - **Calendar**: Google Calendar API
@@ -38,7 +38,7 @@ A comprehensive student-learning navigator scheduling and management application
 ### Prerequisites
 
 - **Docker and Docker Compose** (recommended for local development), or
-- **Node.js 20+** and a local **MongoDB 7** instance (to run without Docker)
+- **Node.js 24** and a local **MongoDB 7** instance (to run without Docker)
 - **Google Cloud Console** project with OAuth 2.0 credentials and the Calendar API enabled
 - **Terraform 1.5+** (only for production deployment)
 
@@ -70,7 +70,7 @@ docker-compose up --build
 cp .env.example .env          # then fill in Google, email, and secret values
 npm install
 npm install --prefix client
-npm run dev                   # backend on :5001 (nodemon) + frontend on :3000 (Vite)
+npm run dev                   # backend on :5001 (node --watch) + frontend on :3000 (Vite)
 ```
 
 The Vite dev server proxies `/api` to `http://localhost:5001`, so keep `PORT=5001` in `.env`.
@@ -185,7 +185,7 @@ terraform apply
 ```
 
 - Render and Vercel auto-deploy on every push to `main`. The backend only redeploys when `server/**` or `package.json` changes.
-- Render runs Node 20+ (pinned by `engines` in `package.json`; required by Nodemailer 10).
+- Render runs Node 24 (pinned by `engines` in `package.json`; required by Nodemailer 10).
 - Terraform manages all backend environment variables on Render. Variables added only in the Render dashboard are removed on the next `terraform apply`, so add them to Terraform as well (e.g. `admin_reader_emails`).
 
 See `infrastructure/README.md` for detailed deployment instructions.
