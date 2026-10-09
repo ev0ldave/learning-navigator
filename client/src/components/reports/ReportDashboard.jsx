@@ -73,7 +73,9 @@ const ChartCard = ({ title, action, children }) => (
   </Card>
 );
 
-const ReportDashboard = ({ report, onClose, onExport }) => {
+const MAX_CHART_GROUPS = 15;
+
+const ReportDashboard = ({ report, onClose, onExport, inline = false, actions }) => {
   const theme = useTheme();
   const [trendPeriod, setTrendPeriod] = useState('week');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -162,12 +164,17 @@ const ReportDashboard = ({ report, onClose, onExport }) => {
     return [];
   }, [data]);
   const groupHasStatus = groupRows.some(r => r.completed !== undefined);
+  const chartRows = groupRows.length > MAX_CHART_GROUPS
+    ? [...groupRows].sort((a, b) => b.total - a.total).slice(0, MAX_CHART_GROUPS)
+    : groupRows;
   const groupMetricKeys = groupRows.length
     ? Object.keys(groupRows[0].metrics).filter(k => typeof groupRows[0].metrics[k] !== 'object' || groupRows[0].metrics[k] === null)
     : [];
 
   const filteredSessions = statusFilter === 'all' ? sessions : sessions.filter(s => s.status === statusFilter);
   const sessionStatuses = [...new Set(sessions.map(s => s.status).filter(Boolean))];
+  // Only worth a column when sessions span more than one navigator (e.g. admin views)
+  const showNavigator = new Set(sessions.map(s => s.navigatorName).filter(Boolean)).size > 1;
 
   if (!report) return null;
 
@@ -179,13 +186,21 @@ const ReportDashboard = ({ report, onClose, onExport }) => {
     { dataKey: 'noShow', label: 'No Show', stack: 'status', color: statusColors.no_show }
   ];
 
+  const Wrapper = inline ? Paper : Dialog;
+  const wrapperProps = inline
+    ? { variant: 'outlined', sx: { overflow: 'hidden' } }
+    : { open: true, onClose, fullScreen: true };
+  const isLive = report.type === 'live_quarter';
+
   return (
-    <Dialog open={!!report} onClose={onClose} fullScreen>
-      <AppBar position="sticky" color="default" elevation={1}>
+    <Wrapper {...wrapperProps}>
+      <AppBar position={inline ? 'static' : 'sticky'} color="default" elevation={inline ? 0 : 1}>
         <Toolbar sx={{ gap: 2, flexWrap: 'wrap', py: 1 }}>
-          <IconButton edge="start" onClick={onClose} aria-label="Close report">
-            <CloseIcon />
-          </IconButton>
+          {onClose && (
+            <IconButton edge="start" onClick={onClose} aria-label="Close report">
+              <CloseIcon />
+            </IconButton>
+          )}
           <Box sx={{ flexGrow: 1, minWidth: 200 }}>
             <Typography variant="h6" noWrap>{report.title}</Typography>
             <Typography variant="caption" color="text.secondary">
@@ -193,10 +208,13 @@ const ReportDashboard = ({ report, onClose, onExport }) => {
               {report.scope?.startDate && report.scope?.endDate && (
                 <> • {format(new Date(report.scope.startDate), 'MMM d, yyyy')} — {format(new Date(report.scope.endDate), 'MMM d, yyyy')}</>
               )}
-              {' '}• Generated {format(new Date(report.createdAt), 'MMM d, yyyy')}
+              {' '}• {isLive
+                ? `As of ${format(new Date(report.createdAt), 'MMM d, yyyy h:mm a')}`
+                : `Generated ${format(new Date(report.createdAt), 'MMM d, yyyy')}`}
             </Typography>
           </Box>
           <Stack direction="row" spacing={1}>
+            {actions}
             <Button variant="outlined" size="small" startIcon={<JsonIcon />} onClick={() => onExport('json')}>
               JSON
             </Button>
@@ -311,11 +329,15 @@ const ReportDashboard = ({ report, onClose, onExport }) => {
             {groupRows.length > 0 && (
               <>
                 <Grid item xs={12} lg={6}>
-                  <ChartCard title="Breakdown">
+                  <ChartCard
+                    title={chartRows.length < groupRows.length
+                      ? `Breakdown (top ${chartRows.length} of ${groupRows.length})`
+                      : 'Breakdown'}
+                  >
                     <BarChart
-                      height={Math.max(250, groupRows.length * 36)}
+                      height={Math.max(250, chartRows.length * 36)}
                       layout="horizontal"
-                      dataset={groupRows.map(r => ({
+                      dataset={chartRows.map(r => ({
                         ...r,
                         completed: r.completed ?? 0,
                         cancelled: r.cancelled ?? 0,
@@ -331,7 +353,7 @@ const ReportDashboard = ({ report, onClose, onExport }) => {
                 </Grid>
                 <Grid item xs={12} lg={6}>
                   <ChartCard title="Breakdown Details">
-                    <TableContainer sx={{ maxHeight: Math.max(250, groupRows.length * 36) }}>
+                    <TableContainer sx={{ maxHeight: Math.max(250, chartRows.length * 36) }}>
                       <Table size="small" stickyHeader>
                         <TableHead>
                           <TableRow>
@@ -387,6 +409,7 @@ const ReportDashboard = ({ report, onClose, onExport }) => {
                         <TableRow>
                           <TableCell><strong>Date</strong></TableCell>
                           <TableCell><strong>Student</strong></TableCell>
+                          {showNavigator && <TableCell><strong>Navigator</strong></TableCell>}
                           <TableCell><strong>Status</strong></TableCell>
                           <TableCell align="right"><strong>Duration</strong></TableCell>
                           <TableCell><strong>Location</strong></TableCell>
@@ -397,6 +420,7 @@ const ReportDashboard = ({ report, onClose, onExport }) => {
                           <TableRow key={idx} hover>
                             <TableCell>{format(new Date(session.date), 'MMM d, yyyy h:mm a')}</TableCell>
                             <TableCell>{getStudentName(session)}</TableCell>
+                            {showNavigator && <TableCell>{session.navigatorName || 'N/A'}</TableCell>}
                             <TableCell>
                               <Chip
                                 label={session.status ? titleCase(session.status) : 'N/A'}
@@ -422,7 +446,7 @@ const ReportDashboard = ({ report, onClose, onExport }) => {
           </Grid>
         )}
       </Box>
-    </Dialog>
+    </Wrapper>
   );
 };
 

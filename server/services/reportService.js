@@ -2,7 +2,7 @@
  * Report Service - Single Responsibility: Report business logic
  * Extracts validation and business rules from routes
  */
-const { reportRepository, userRepository, meetingRepository, noteRepository } = require('../repositories');
+const { reportRepository, userRepository, meetingRepository, noteRepository, quarterRepository } = require('../repositories');
 const { metricsCalculator } = require('./reporting/MetricRegistry');
 const { groupingEngine } = require('./reporting/GroupingRegistry');
 const { displayFormatter } = require('./reporting/DisplayFormatter');
@@ -31,6 +31,7 @@ class ReportService {
     userRepo = userRepository,
     meetingRepo = meetingRepository,
     noteRepo = noteRepository,
+    quarterRepo = quarterRepository,
     metrics = metricsCalculator,
     grouping = groupingEngine,
     formatter = displayFormatter
@@ -39,6 +40,7 @@ class ReportService {
     this.userRepo = userRepo;
     this.meetingRepo = meetingRepo;
     this.noteRepo = noteRepo;
+    this.quarterRepo = quarterRepo;
     this.metrics = metrics;
     this.grouping = grouping;
     this.formatter = formatter;
@@ -336,16 +338,7 @@ class ReportService {
 
     // Include session details if requested
     if (includeDetails) {
-      data.sessions = meetings.map(m => ({
-        meeting: m._id,
-        date: m.startTime,
-        duration: m.duration,
-        status: m.status,
-        location: m.location,
-        studentName: m.student ? `${m.student.firstName} ${m.student.lastName}` : 'Unknown',
-        studentId: m.student?._id,
-        navigatorName: m.navigator ? `${m.navigator.firstName} ${m.navigator.lastName}` : 'Unknown'
-      }));
+      data.sessions = this._mapSessions(meetings);
     }
 
     // Determine report type and scope
@@ -373,6 +366,53 @@ class ReportService {
     });
 
     return report;
+  }
+
+  /**
+   * Build an unsaved report for the active quarter, from its start up to now.
+   */
+  async buildLiveQuarterReport(user, now = new Date()) {
+    const quarter = await this.quarterRepo.findActive();
+    if (!quarter) {
+      throw new ReportValidationError('No active school quarter is set', 404);
+    }
+
+    const startDate = quarter.startDate;
+    const endDate = quarter.endDate < now ? quarter.endDate : now;
+
+    const [meetings, notes] = await Promise.all([
+      this.meetingRepo.findForCustomReport({ startDate, endDate }, user),
+      this.noteRepo.findForCustomReport({ startDate, endDate }, user)
+    ]);
+
+    const allMetrics = this.getReportOptions().metrics.map(m => m.id);
+    const groupMetrics = ['completedSessions', 'cancelledSessions', 'noShowSessions', 'attendanceRate', 'totalDuration', 'noteCount'];
+
+    return {
+      type: 'live_quarter',
+      title: `${quarter.name} Live Report`,
+      createdAt: now,
+      scope: { startDate, endDate },
+      quarter: { name: quarter.name, startDate: quarter.startDate, endDate: quarter.endDate },
+      data: {
+        summary: this._calculateMetrics(meetings, notes, allMetrics),
+        grouped: this._groupData(meetings, notes, 'student', groupMetrics),
+        sessions: this._mapSessions(meetings)
+      }
+    };
+  }
+
+  _mapSessions(meetings) {
+    return meetings.map(m => ({
+      meeting: m._id,
+      date: m.startTime,
+      duration: m.duration,
+      status: m.status,
+      location: m.location,
+      studentName: m.student ? `${m.student.firstName} ${m.student.lastName}` : 'Unknown',
+      studentId: m.student?._id,
+      navigatorName: m.navigator ? `${m.navigator.firstName} ${m.navigator.lastName}` : 'Unknown'
+    }));
   }
 
   /**

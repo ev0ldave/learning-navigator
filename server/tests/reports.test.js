@@ -6,6 +6,7 @@ const User = require('../models/User');
 const Report = require('../models/Report');
 const Meeting = require('../models/Meeting');
 const Note = require('../models/Note');
+const SchoolQuarter = require('../models/SchoolQuarter');
 
 let mongoServer;
 let studentToken;
@@ -846,6 +847,142 @@ describe('Reports Routes', () => {
         .expect(200);
 
       expect(res.headers['content-type']).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    });
+  });
+
+  describe('GET /api/reports/live', () => {
+    const jwt = require('jsonwebtoken');
+    const DAY = 24 * 60 * 60 * 1000;
+    const signToken = (user) => jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET || 'default-jwt-secret',
+      { expiresIn: '7d' }
+    );
+
+    const createActiveQuarter = () => SchoolQuarter.create({
+      name: 'Fall 2026',
+      year: 2026,
+      quarter: 'fall',
+      startDate: new Date(Date.now() - 60 * DAY),
+      endDate: new Date(Date.now() + 30 * DAY),
+      isActive: true
+    });
+
+    beforeEach(async () => {
+      await SchoolQuarter.deleteMany({});
+      const base = {
+        student: student._id,
+        navigator: navigator._id,
+        status: 'scheduled',
+        duration: 30,
+        createdBy: student._id
+      };
+      await Meeting.create([
+        { ...base, title: 'Before quarter', startTime: new Date(Date.now() - 90 * DAY), endTime: new Date(Date.now() - 90 * DAY + 30 * 60 * 1000) },
+        { ...base, title: 'Upcoming', startTime: new Date(Date.now() + 2 * DAY), endTime: new Date(Date.now() + 2 * DAY + 30 * 60 * 1000) }
+      ]);
+    });
+
+    it('should return 404 when no quarter is active', async () => {
+      const res = await request(app)
+        .get('/api/reports/live')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(404);
+
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should cover the active quarter up to now without saving a report', async () => {
+      await createActiveQuarter();
+
+      const res = await request(app)
+        .get('/api/reports/live')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200);
+
+      const { report } = res.body;
+      expect(report.type).toBe('live_quarter');
+      expect(report.title).toBe('Fall 2026 Live Report');
+      expect(new Date(report.scope.endDate).getTime()).toBeLessThanOrEqual(Date.now());
+      expect(report.data.summary.totalSessions).toBe(3);
+      expect(report.data.summary.completedSessions).toBe(2);
+      expect(report.data.sessions).toHaveLength(3);
+      expect(report.data.sessions.map(s => s.studentName)).toContain('Test Student');
+      expect(report.data.grouped).toHaveLength(1);
+      expect(report.data.grouped[0].count).toBe(3);
+      expect(await Report.countDocuments()).toBe(0);
+    });
+
+    it('should only include the requesting navigator\'s meetings', async () => {
+      await createActiveQuarter();
+      const otherNavigator = await User.create({
+        email: 'other-nav@test.com',
+        firstName: 'Other',
+        lastName: 'Navigator',
+        role: 'learning_navigator',
+        isActive: true
+      });
+
+      const res = await request(app)
+        .get('/api/reports/live')
+        .set('Authorization', `Bearer ${signToken(otherNavigator)}`)
+        .expect(200);
+
+      expect(res.body.report.data.summary.totalSessions).toBe(0);
+    });
+
+    it('should allow an admin_reader viewing as a navigator', async () => {
+      await createActiveQuarter();
+      const reader = await User.create({
+        email: 'reader@test.com',
+        firstName: 'Rita',
+        lastName: 'Reader',
+        role: 'admin_reader',
+        isActive: true
+      });
+
+      const res = await request(app)
+        .get('/api/reports/live')
+        .set('Authorization', `Bearer ${signToken(reader)}`)
+        .set('x-impersonate-user-id', navigator._id.toString())
+        .expect(200);
+
+      expect(res.body.report.data.summary.totalSessions).toBe(3);
+    });
+
+    it('should reject student access', async () => {
+      await createActiveQuarter();
+
+      await request(app)
+        .get('/api/reports/live')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .expect(403);
+    });
+
+    it('should export the live report as PDF and Excel', async () => {
+      await createActiveQuarter();
+
+      const pdf = await request(app)
+        .get('/api/reports/live/export/pdf')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200);
+      expect(pdf.headers['content-type']).toContain('application/pdf');
+
+      const xlsx = await request(app)
+        .get('/api/reports/live/export/xlsx')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(200);
+      expect(xlsx.headers['content-type']).toContain('spreadsheetml.sheet');
+      expect(xlsx.headers['content-disposition']).toContain('Fall_2026_Live_Report');
+    });
+
+    it('should reject an invalid live export format', async () => {
+      await createActiveQuarter();
+
+      await request(app)
+        .get('/api/reports/live/export/csv')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .expect(400);
     });
   });
 });

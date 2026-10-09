@@ -123,12 +123,16 @@ export const notesAPI = {
 export const reportsAPI = {
   getAll: (params) => api.get('/reports', { params }),
   getById: (id) => api.get(`/reports/${id}`),
+  getLive: () => api.get('/reports/live'),
   getOptions: () => api.get('/reports/config/options'),
   generateIndividual: (data) => api.post('/reports/individual', data),
   generateGroup: (data) => api.post('/reports/group', data),
   generateSessionHistory: (data) => api.post('/reports/session-history', data),
   generateCustom: (data) => api.post('/reports/custom', data),
   export: (id, format) => api.get(`/reports/${id}/export/${format}`, {
+    responseType: format === 'json' ? 'json' : 'arraybuffer'
+  }),
+  exportLive: (format) => api.get(`/reports/live/export/${format}`, {
     responseType: format === 'json' ? 'json' : 'arraybuffer'
   }),
   delete: (id) => api.delete(`/reports/${id}`)

@@ -4,14 +4,15 @@ import {
   CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Select, MenuItem, Grid, Checkbox, FormControlLabel,
   Chip, OutlinedInput, IconButton, Tooltip, Accordion, AccordionSummary,
-  AccordionDetails, FormGroup, Divider, Paper, Switch, Alert, Menu, ListItemIcon
+  AccordionDetails, FormGroup, Divider, Paper, Switch, Alert, Menu, ListItemIcon,
+  Tabs, Tab
 } from '@mui/material';
 import { 
   Add as AddIcon, Assessment as ReportIcon, Download as DownloadIcon, 
   Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, TuneOutlined as TuneIcon,
   BarChart as ChartIcon, Schedule as TimeIcon, Group as GroupIcon,
   TrendingUp as TrendIcon, Visibility as ViewIcon, PictureAsPdf as PdfIcon,
-  GridOn as ExcelIcon
+  GridOn as ExcelIcon, Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers';
 import { format, subMonths } from 'date-fns';
@@ -41,6 +42,10 @@ const Reports = () => {
   const [exportMenuAnchor, setExportMenuAnchor] = useState(null);
   const [exportReportId, setExportReportId] = useState(null);
   const [exportReportTitle, setExportReportTitle] = useState('');
+  const [tab, setTab] = useState('live');
+  const [liveReport, setLiveReport] = useState(null);
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [liveError, setLiveError] = useState(null);
   
   const [formData, setFormData] = useState({
     studentIds: [],
@@ -59,7 +64,25 @@ const Reports = () => {
 
   useEffect(() => {
     fetchData();
+    fetchLiveReport();
   }, []);
+
+  const fetchLiveReport = async () => {
+    try {
+      setLiveLoading(true);
+      setLiveError(null);
+      const response = await reportsAPI.getLive();
+      setLiveReport(response.data.report);
+    } catch (err) {
+      setLiveReport(null);
+      setLiveError({
+        notFound: err.response?.status === 404,
+        message: err.response?.data?.message || 'Failed to load live report'
+      });
+    } finally {
+      setLiveLoading(false);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -142,7 +165,9 @@ const Reports = () => {
 
   const handleExport = async (reportId, reportTitle, formatType) => {
     try {
-      const response = await reportsAPI.export(reportId, formatType);
+      const response = reportId
+        ? await reportsAPI.export(reportId, formatType)
+        : await reportsAPI.exportLive(formatType);
       const mimeTypes = {
         pdf: 'application/pdf',
         xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -230,6 +255,43 @@ const Reports = () => {
         </Button>
       </Box>
 
+      <Tabs value={tab} onChange={(e, value) => setTab(value)} sx={{ mb: 2 }}>
+        <Tab value="live" label="Live Quarter" />
+        <Tab value="saved" label="Saved Reports" />
+      </Tabs>
+
+      {tab === 'live' && (
+        liveLoading && !liveReport ? (
+          <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+        ) : liveError ? (
+          <Alert
+            severity={liveError.notFound ? 'info' : 'error'}
+            action={<Button color="inherit" size="small" onClick={fetchLiveReport}>Retry</Button>}
+          >
+            {liveError.notFound
+              ? 'No active school quarter is set. An administrator can activate one under School Quarters.'
+              : liveError.message}
+          </Alert>
+        ) : liveReport && (
+          <ReportDashboard
+            inline
+            report={liveReport}
+            onExport={(formatType) => handleExport(null, liveReport.title, formatType)}
+            actions={
+              <Button
+                size="small"
+                startIcon={liveLoading ? <CircularProgress size={16} /> : <RefreshIcon />}
+                onClick={fetchLiveReport}
+                disabled={liveLoading}
+              >
+                Refresh
+              </Button>
+            }
+          />
+        )
+      )}
+
+      {tab === 'saved' && (
       <Card>
         <CardContent>
           {loading ? (
@@ -290,6 +352,7 @@ const Reports = () => {
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* Export Menu */}
       <Menu

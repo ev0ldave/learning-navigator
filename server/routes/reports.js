@@ -25,6 +25,53 @@ const handleServiceError = (error, res) => {
   return res.status(500).json({ success: false, message: 'An error occurred' });
 };
 
+const EXPORT_FORMATS = ['pdf', 'json', 'xlsx'];
+
+const sendReportExport = async (report, format, res) => {
+  const safeTitle = report.title.replace(/[^a-z0-9]/gi, '_').substring(0, 50);
+  const timestamp = new Date().toISOString().split('T')[0];
+
+  if (format === 'pdf') {
+    try {
+      const pdfBuffer = await generateReportPDF(report);
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_${timestamp}.pdf"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+
+      return res.send(pdfBuffer);
+    } catch (pdfError) {
+      console.error('PDF generation error:', pdfError);
+      return res.status(500).json({
+        success: false,
+        message: 'Error generating PDF'
+      });
+    }
+  }
+
+  if (format === 'xlsx') {
+    try {
+      const excelBuffer = await generateReportExcel(report);
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_${timestamp}.xlsx"`);
+      res.setHeader('Content-Length', excelBuffer.length);
+
+      return res.send(Buffer.from(excelBuffer));
+    } catch (excelError) {
+      console.error('Excel generation error:', excelError);
+      return res.status(500).json({
+        success: false,
+        message: 'Error generating Excel file'
+      });
+    }
+  }
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_${timestamp}.json"`);
+  return res.json(report);
+};
+
 // @route   GET /api/reports
 // @desc    Get all reports for current user
 // @access  Private/Navigator
@@ -55,6 +102,39 @@ router.get('/', isAuthenticated, requireNavigator, async (req, res) => {
       success: false,
       message: 'Error fetching reports'
     });
+  }
+});
+
+// Live routes must be registered before /:id so "live" isn't treated as an ID.
+// @route   GET /api/reports/live
+// @desc    Unsaved report for the active quarter, from its start up to now
+// @access  Private/Navigator
+router.get('/live', isAuthenticated, requireNavigator, async (req, res) => {
+  try {
+    const report = await reportService.buildLiveQuarterReport(req.user);
+    res.json({ success: true, report });
+  } catch (error) {
+    return handleServiceError(error, res);
+  }
+});
+
+// @route   GET /api/reports/live/export/:format
+// @desc    Export the live quarter report
+// @access  Private/Navigator
+router.get('/live/export/:format', isAuthenticated, requireNavigator, async (req, res) => {
+  try {
+    const { format } = req.params;
+    if (!EXPORT_FORMATS.includes(format)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid export format. Use pdf, xlsx, or json'
+      });
+    }
+
+    const report = await reportService.buildLiveQuarterReport(req.user);
+    return await sendReportExport(report, format, res);
+  } catch (error) {
+    return handleServiceError(error, res);
   }
 });
 
@@ -239,7 +319,7 @@ router.get('/:id/export/:format', isAuthenticated, requireNavigator, async (req,
   try {
     const { id, format } = req.params;
     
-    if (!['pdf', 'json', 'xlsx'].includes(format)) {
+    if (!EXPORT_FORMATS.includes(format)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid export format. Use pdf, xlsx, or json'
@@ -263,57 +343,7 @@ router.get('/:id/export/:format', isAuthenticated, requireNavigator, async (req,
       });
     }
     
-    // Generate filename
-    const safeTitle = report.title.replace(/[^a-z0-9]/gi, '_').substring(0, 50);
-    const timestamp = new Date().toISOString().split('T')[0];
-    
-    if (format === 'pdf') {
-      try {
-        const pdfBuffer = await generateReportPDF(report);
-        
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_${timestamp}.pdf"`);
-        res.setHeader('Content-Length', pdfBuffer.length);
-        
-        return res.send(pdfBuffer);
-      } catch (pdfError) {
-        console.error('PDF generation error:', pdfError);
-        return res.status(500).json({
-          success: false,
-          message: 'Error generating PDF'
-        });
-      }
-    }
-    
-    // For Excel export
-    if (format === 'xlsx') {
-      try {
-        const excelBuffer = await generateReportExcel(report);
-        
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_${timestamp}.xlsx"`);
-        res.setHeader('Content-Length', excelBuffer.length);
-        
-        return res.send(Buffer.from(excelBuffer));
-      } catch (excelError) {
-        console.error('Excel generation error:', excelError);
-        return res.status(500).json({
-          success: false,
-          message: 'Error generating Excel file'
-        });
-      }
-    }
-    
-    // For JSON, return directly
-    if (format === 'json') {
-      res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_${timestamp}.json"`);
-      return res.json(report);
-    }
-    
-    // Track export
-    await reportRepository.addExport(id, format);
-    
+    return await sendReportExport(report, format, res);
   } catch (error) {
     console.error('Export report error:', error);
     res.status(500).json({
