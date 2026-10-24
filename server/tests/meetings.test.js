@@ -625,6 +625,48 @@ describe('Meeting Filters', () => {
     expect(res.body.pagination).toBeDefined();
     expect(res.body.pagination.total).toBe(3);
   });
+
+  it('should filter meetings by studentId', async () => {
+    const otherStudent = await User.create({
+      email: 'other-filter@test.com',
+      firstName: 'Other',
+      lastName: 'Student',
+      role: 'student',
+      isActive: true
+    });
+    const startTime = new Date(Date.now() + 72 * 60 * 60 * 1000);
+    await Meeting.create({
+      student: otherStudent._id,
+      navigator: navigator._id,
+      title: 'Other Student Meeting',
+      startTime,
+      endTime: new Date(startTime.getTime() + 30 * 60 * 1000),
+      status: 'scheduled',
+      createdBy: otherStudent._id
+    });
+
+    const jwt = require('jsonwebtoken');
+    const navToken = jwt.sign(
+      { userId: navigator._id },
+      process.env.JWT_SECRET || 'default-jwt-secret',
+      { expiresIn: '7d' }
+    );
+
+    const res = await request(app)
+      .get(`/api/meetings?studentId=${student._id}`)
+      .set('Authorization', `Bearer ${navToken}`)
+      .expect(200);
+
+    expect(res.body.meetings.length).toBe(3);
+    expect(res.body.meetings.every(m => m.student._id === student._id.toString())).toBe(true);
+  });
+
+  it('should reject an invalid studentId', async () => {
+    await request(app)
+      .get('/api/meetings?studentId=not-an-id')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .expect(400);
+  });
 });
 
 describe('DELETE /api/meetings/series/:id', () => {

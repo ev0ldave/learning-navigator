@@ -42,6 +42,10 @@ class MeetingRepository extends BaseRepository {
     }
     // Admin sees all meetings
 
+    if (filters.studentId && role !== 'student') {
+      query.student = filters.studentId;
+    }
+
     // Date filters
     if (filters.startDate || filters.endDate) {
       query.startTime = {};

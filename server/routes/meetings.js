@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const { body, validationResult, query } = require('express-validator');
 const { meetingRepository } = require('../repositories');
@@ -40,12 +41,16 @@ const handleServiceError = (error, res) => {
 // @access  Private
 router.get('/', isAuthenticated, async (req, res) => {
   try {
-    const { startDate, endDate, status, sort, page = 1, limit = 50 } = req.query;
+    const { startDate, endDate, status, sort, studentId, page = 1, limit = 50 } = req.query;
+
+    if (studentId !== undefined && !mongoose.Types.ObjectId.isValid(studentId)) {
+      return res.status(400).json({ success: false, message: 'Invalid studentId' });
+    }
     
     const { meetings, total } = await meetingRepository.findForUser(
       req.user._id,
       req.user.role,
-      { startDate, endDate, status, sort },
+      { startDate, endDate, status, sort, studentId },
       { page: parseInt(page), limit: parseInt(limit) }
     );
     
