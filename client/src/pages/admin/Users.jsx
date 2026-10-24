@@ -3,12 +3,14 @@ import {
   Box, Card, CardContent, Typography, List, ListItem, ListItemText, ListItemAvatar,
   Avatar, Chip, CircularProgress, TextField, InputAdornment, Select, MenuItem,
   FormControl, InputLabel, IconButton, Menu, Divider, Button, Dialog, DialogTitle,
-  DialogContent, DialogActions
+  DialogContent, DialogActions, Pagination
 } from '@mui/material';
 import { Search as SearchIcon, MoreVert as MoreIcon, PersonAdd as PersonAddIcon } from '@mui/icons-material';
 import { usersAPI } from '../../services/api';
 import { useNotification } from '../../contexts/NotificationContext';
 import { useAuth } from '../../contexts/AuthContext';
+
+const PAGE_SIZE = 25;
 
 const AdminUsers = () => {
   const { showSuccess, showError } = useNotification();
@@ -17,7 +19,10 @@ const AdminUsers = () => {
   const [users, setUsers] = useState([]);
   const [navigators, setNavigators] = useState([]);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
@@ -32,9 +37,20 @@ const AdminUsers = () => {
   const [registerLoading, setRegisterLoading] = useState(false);
 
   useEffect(() => {
-    fetchUsers();
     fetchNavigators();
-  }, [roleFilter]);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [roleFilter, debouncedSearch, page]);
 
   const fetchNavigators = async () => {
     try {
@@ -48,8 +64,14 @@ const AdminUsers = () => {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const response = await usersAPI.getAll({ role: roleFilter || undefined });
+      const response = await usersAPI.getAll({
+        role: roleFilter || undefined,
+        search: debouncedSearch || undefined,
+        page,
+        limit: PAGE_SIZE
+      });
       setUsers(response.data.users || []);
+      setTotalPages(response.data.pagination?.pages || 1);
     } catch (err) {
       console.error('Error:', err);
     } finally {
@@ -119,14 +141,6 @@ const AdminUsers = () => {
 
   const isAdmin = currentUser?.role === 'administrator';
 
-  const filteredUsers = users.filter(user => {
-    if (!search) return true;
-    const s = search.toLowerCase();
-    return user.firstName?.toLowerCase().includes(s) ||
-           user.lastName?.toLowerCase().includes(s) ||
-           user.email?.toLowerCase().includes(s);
-  });
-
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -152,7 +166,7 @@ const AdminUsers = () => {
           />
           <FormControl size="small" sx={{ minWidth: 150 }}>
             <InputLabel>Role</InputLabel>
-            <Select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} label="Role">
+            <Select value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }} label="Role">
               <MenuItem value="">All Roles</MenuItem>
               <MenuItem value="student">Student</MenuItem>
               <MenuItem value="learning_navigator">Learning Navigator</MenuItem>
@@ -168,7 +182,10 @@ const AdminUsers = () => {
             <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
           ) : (
             <List>
-              {filteredUsers.map(user => (
+              {users.length === 0 && (
+                <Typography color="text.secondary" align="center" sx={{ py: 4 }}>No users found</Typography>
+              )}
+              {users.map(user => (
                 <ListItem key={user._id} sx={{ bgcolor: 'background.default', mb: 1, borderRadius: 1 }}>
                   <ListItemAvatar>
                     <Avatar src={user.profilePicture}>{user.firstName?.[0]}</Avatar>
@@ -195,6 +212,11 @@ const AdminUsers = () => {
                 </ListItem>
               ))}
             </List>
+          )}
+          {totalPages > 1 && (
+            <Box display="flex" justifyContent="center" mt={2}>
+              <Pagination count={totalPages} page={page} onChange={(e, value) => setPage(value)} color="primary" />
+            </Box>
           )}
         </CardContent>
       </Card>

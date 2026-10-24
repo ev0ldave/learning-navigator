@@ -84,10 +84,11 @@ router.get('/', isAuthenticated, requireAdmin, async (req, res) => {
     const query = {};
     if (role) query.role = role;
     if (search) {
+      const pattern = String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+        { firstName: { $regex: pattern, $options: 'i' } },
+        { lastName: { $regex: pattern, $options: 'i' } },
+        { email: { $regex: pattern, $options: 'i' } }
       ];
     }
     
