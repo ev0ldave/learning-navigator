@@ -195,6 +195,7 @@ class ReportService {
         },
         customFields: {
           studentBreakdown: Object.values(studentStats)
+            .sort((a, b) => this._compareStudents(a.student, b.student))
         }
       }
     });
@@ -355,6 +356,7 @@ class ReportService {
         count: 0,
         metrics: { ...emptyMetrics }
       })));
+      this._sortStudentRows(data.grouped, [...meetings.map(m => m.student), ...idle]);
     }
 
     // Include session details if requested
@@ -417,10 +419,23 @@ class ReportService {
       quarter: { name: quarter.name, startDate: quarter.startDate, endDate: quarter.endDate },
       data: {
         summary: this._calculateMetrics(meetings, notes, allMetrics),
-        grouped: this._groupData(meetings, notes, 'student', groupMetrics),
+        grouped: this._sortStudentRows(
+          this._groupData(meetings, notes, 'student', groupMetrics),
+          meetings.map(m => m.student)
+        ),
         sessions: this._mapSessions(meetings)
       }
     };
+  }
+
+  _compareStudents(a, b) {
+    const name = s => (s ? `${s.lastName || ''} ${s.firstName || ''}` : '\uffff');
+    return name(a).localeCompare(name(b), 'en', { sensitivity: 'base' });
+  }
+
+  _sortStudentRows(rows, students) {
+    const byId = new Map(students.filter(s => s?._id).map(s => [s._id.toString(), s]));
+    return rows.sort((a, b) => this._compareStudents(byId.get(a.key), byId.get(b.key)));
   }
 
   async _findStudentsWithoutMeetings(studentIds = [], meetings, user) {

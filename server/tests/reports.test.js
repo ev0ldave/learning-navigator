@@ -423,7 +423,7 @@ describe('Reports Routes', () => {
 
     it('should include selected students with no meetings in the breakdown', async () => {
       const idle = await User.create({
-        email: 'idle@test.com', firstName: 'Idle', lastName: 'Student', role: 'student', isActive: true
+        email: 'idle@test.com', firstName: 'Idle', lastName: 'Aardvark', role: 'student', isActive: true
       });
       const startDate = new Date();
       startDate.setMonth(startDate.getMonth() - 2);
@@ -438,9 +438,10 @@ describe('Reports Routes', () => {
         })
         .expect(201);
 
-      const idleRow = res.body.report.data.customFields.studentBreakdown
-        .find(b => b.student._id === idle._id.toString());
+      const breakdown = res.body.report.data.customFields.studentBreakdown;
+      const idleRow = breakdown.find(b => b.student._id === idle._id.toString());
       expect(idleRow).toMatchObject({ totalSessions: 0, completed: 0 });
+      expect(breakdown.map(b => b.student.lastName)).toEqual(['Aardvark', 'Student']);
     });
 
     it('should reject without students', async () => {
@@ -758,7 +759,7 @@ describe('Reports Routes', () => {
 
     it('should list selected students with no meetings when grouping by student', async () => {
       const idle = await User.create({
-        email: 'idle@test.com', firstName: 'Idle', lastName: 'Student', role: 'student', isActive: true
+        email: 'idle@test.com', firstName: 'Idle', lastName: 'Aardvark', role: 'student', isActive: true
       });
       const startDate = new Date();
       startDate.setMonth(startDate.getMonth() - 2);
@@ -776,8 +777,8 @@ describe('Reports Routes', () => {
         .expect(201);
 
       const idleRow = res.body.report.data.grouped.find(g => g.key === idle._id.toString());
-      expect(idleRow).toMatchObject({ label: 'Idle Student', count: 0, metrics: { totalSessions: 0, completedSessions: 0 } });
-      expect(res.body.report.data.grouped).toHaveLength(2);
+      expect(idleRow).toMatchObject({ label: 'Idle Aardvark', count: 0, metrics: { totalSessions: 0, completedSessions: 0 } });
+      expect(res.body.report.data.grouped.map(g => g.label)).toEqual(['Idle Aardvark', 'Test Student']);
     });
 
     it('should only add zero rows for a navigator\'s assigned students', async () => {

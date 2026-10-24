@@ -73,8 +73,6 @@ const ChartCard = ({ title, action, children }) => (
   </Card>
 );
 
-const MAX_CHART_GROUPS = 15;
-
 const ReportDashboard = ({ report, onClose, onExport, inline = false, actions }) => {
   const theme = useTheme();
   const [trendPeriod, setTrendPeriod] = useState('week');
@@ -164,9 +162,6 @@ const ReportDashboard = ({ report, onClose, onExport, inline = false, actions })
     return [];
   }, [data]);
   const groupHasStatus = groupRows.some(r => r.completed !== undefined);
-  const chartRows = groupRows.length > MAX_CHART_GROUPS
-    ? [...groupRows].sort((a, b) => b.total - a.total).slice(0, MAX_CHART_GROUPS)
-    : groupRows;
   const groupMetricKeys = groupRows.length
     ? Object.keys(groupRows[0].metrics).filter(k => typeof groupRows[0].metrics[k] !== 'object' || groupRows[0].metrics[k] === null)
     : [];
@@ -329,15 +324,11 @@ const ReportDashboard = ({ report, onClose, onExport, inline = false, actions })
             {groupRows.length > 0 && (
               <>
                 <Grid item xs={12} lg={6}>
-                  <ChartCard
-                    title={chartRows.length < groupRows.length
-                      ? `Breakdown (top ${chartRows.length} of ${groupRows.length})`
-                      : 'Breakdown'}
-                  >
+                  <ChartCard title="Breakdown">
                     <BarChart
-                      height={Math.max(250, chartRows.length * 36)}
+                      height={Math.max(250, groupRows.length * 36)}
                       layout="horizontal"
-                      dataset={chartRows.map(r => ({
+                      dataset={groupRows.map(r => ({
                         ...r,
                         completed: r.completed ?? 0,
                         cancelled: r.cancelled ?? 0,
@@ -353,7 +344,7 @@ const ReportDashboard = ({ report, onClose, onExport, inline = false, actions })
                 </Grid>
                 <Grid item xs={12} lg={6}>
                   <ChartCard title="Breakdown Details">
-                    <TableContainer sx={{ maxHeight: Math.max(250, chartRows.length * 36) }}>
+                    <TableContainer sx={{ maxHeight: Math.max(250, groupRows.length * 36) }}>
                       <Table size="small" stickyHeader>
                         <TableHead>
                           <TableRow>
