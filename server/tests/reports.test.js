@@ -421,6 +421,28 @@ describe('Reports Routes', () => {
       }
     });
 
+    it('should include selected students with no meetings in the breakdown', async () => {
+      const idle = await User.create({
+        email: 'idle@test.com', firstName: 'Idle', lastName: 'Student', role: 'student', isActive: true
+      });
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 2);
+
+      const res = await request(app)
+        .post('/api/reports/group')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          studentIds: [student._id.toString(), idle._id.toString()],
+          startDate: startDate.toISOString(),
+          endDate: new Date().toISOString()
+        })
+        .expect(201);
+
+      const idleRow = res.body.report.data.customFields.studentBreakdown
+        .find(b => b.student._id === idle._id.toString());
+      expect(idleRow).toMatchObject({ totalSessions: 0, completed: 0 });
+    });
+
     it('should reject without students', async () => {
       const res = await request(app)
         .post('/api/reports/group')
@@ -732,6 +754,55 @@ describe('Reports Routes', () => {
         .expect(201);
 
       expect(res.body.report.title).toBe('My Custom Report');
+    });
+
+    it('should list selected students with no meetings when grouping by student', async () => {
+      const idle = await User.create({
+        email: 'idle@test.com', firstName: 'Idle', lastName: 'Student', role: 'student', isActive: true
+      });
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 2);
+
+      const res = await request(app)
+        .post('/api/reports/custom')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          studentIds: [student._id.toString(), idle._id.toString()],
+          startDate: startDate.toISOString(),
+          endDate: new Date().toISOString(),
+          metrics: ['totalSessions', 'completedSessions'],
+          groupBy: 'student'
+        })
+        .expect(201);
+
+      const idleRow = res.body.report.data.grouped.find(g => g.key === idle._id.toString());
+      expect(idleRow).toMatchObject({ label: 'Idle Student', count: 0, metrics: { totalSessions: 0, completedSessions: 0 } });
+      expect(res.body.report.data.grouped).toHaveLength(2);
+    });
+
+    it('should only add zero rows for a navigator\'s assigned students', async () => {
+      const [assigned, other] = await User.create([
+        { email: 'mine@test.com', firstName: 'Mine', lastName: 'Student', role: 'student', isActive: true, assignedNavigator: navigator._id },
+        { email: 'other@test.com', firstName: 'Other', lastName: 'Student', role: 'student', isActive: true }
+      ]);
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 2);
+
+      const res = await request(app)
+        .post('/api/reports/custom')
+        .set('Authorization', `Bearer ${navigatorToken}`)
+        .send({
+          studentIds: [student._id.toString(), assigned._id.toString(), other._id.toString()],
+          startDate: startDate.toISOString(),
+          endDate: new Date().toISOString(),
+          metrics: ['totalSessions'],
+          groupBy: 'student'
+        })
+        .expect(201);
+
+      const keys = res.body.report.data.grouped.map(g => g.key);
+      expect(keys).toContain(assigned._id.toString());
+      expect(keys).not.toContain(other._id.toString());
     });
 
     it('should reject without metrics', async () => {

@@ -156,6 +156,11 @@ class ReportService {
       if (meeting.status === 'no_show') studentStats[studentId].noShow++;
     });
 
+    const idle = await this._findStudentsWithoutMeetings(studentIds, meetings, user);
+    idle.forEach(s => {
+      studentStats[s._id.toString()] = { student: s, totalSessions: 0, completed: 0, cancelled: 0, noShow: 0 };
+    });
+
     const report = await this.reportRepo.create({
       generatedBy: user._id,
       type: 'group_progress',
@@ -341,6 +346,17 @@ class ReportService {
       data.grouped = this._groupData(meetings, notes, groupBy, metrics);
     }
 
+    if (groupBy === 'student') {
+      const idle = await this._findStudentsWithoutMeetings(studentIds, meetings, user);
+      const emptyMetrics = this._calculateMetrics([], [], metrics);
+      data.grouped.push(...idle.map(s => ({
+        key: s._id.toString(),
+        label: `${s.firstName} ${s.lastName}`,
+        count: 0,
+        metrics: { ...emptyMetrics }
+      })));
+    }
+
     // Include session details if requested
     if (includeDetails) {
       data.sessions = this._mapSessions(meetings);
@@ -405,6 +421,18 @@ class ReportService {
         sessions: this._mapSessions(meetings)
       }
     };
+  }
+
+  async _findStudentsWithoutMeetings(studentIds = [], meetings, user) {
+    const seen = new Set(meetings.map(m => m.student?._id?.toString()));
+    const missing = studentIds.filter(id => !seen.has(id.toString()));
+    if (missing.length === 0) return [];
+
+    const query = { _id: { $in: missing }, role: 'student' };
+    // Navigator reports only cover their own meetings, so limit zero rows to their assigned students
+    if (user.role !== 'administrator') query.assignedNavigator = user._id;
+
+    return this.userRepo.find(query, { select: 'firstName lastName', sort: { lastName: 1, firstName: 1 } });
   }
 
   _mapSessions(meetings) {

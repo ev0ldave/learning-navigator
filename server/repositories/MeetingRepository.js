@@ -168,7 +168,7 @@ class MeetingRepository extends BaseRepository {
   async findFutureSeriesChildren(parentId, fromDate) {
     return this.find({
       'recurrence.parentMeetingId': parentId,
-      startTime: { $gte: fromDate },
+      startTime: { $gt: fromDate },
       status: { $in: ['scheduled', 'confirmed'] }
     });
   }
@@ -179,9 +179,22 @@ class MeetingRepository extends BaseRepository {
   async deleteFutureSeriesChildren(parentId, fromDate) {
     return this.deleteMany({
       'recurrence.parentMeetingId': parentId,
-      startTime: { $gte: fromDate },
+      startTime: { $gt: fromDate },
       status: { $in: ['scheduled', 'confirmed'] }
     });
+  }
+
+  /**
+   * Most recent occurrence of a series (parent or child) that started at or before the given date.
+   */
+  async findLatestStartedSeriesMeeting(parentId, beforeDate) {
+    return this.model.findOne({
+      $or: [
+        { _id: parentId },
+        { 'recurrence.parentMeetingId': parentId }
+      ],
+      startTime: { $lte: beforeDate }
+    }).sort({ startTime: -1 });
   }
 
   /**

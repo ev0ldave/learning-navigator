@@ -3,9 +3,21 @@
  * Extracts validation, conflict checking, and business rules from routes
  */
 const { meetingRepository, userRepository, availabilityRepository, quarterRepository } = require('../repositories');
-const { getPacificDayOfWeek, getPacificComponents } = require('../utils/timezone');
+const { getPacificDayOfWeek, getPacificComponents, createPacificDate } = require('../utils/timezone');
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const FREQUENCY_DAYS = { weekly: 7, biweekly: 14, triweekly: 21 };
+
+// nth weekday of a month (monthIndex may overflow past 11); a missing 5th occurrence falls back to the last one
+function nthWeekdayOfMonth(year, monthIndex, weekday, nth) {
+  const first = new Date(Date.UTC(year, monthIndex, 1));
+  const y = first.getUTCFullYear();
+  const m = first.getUTCMonth();
+  const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  let d = 1 + ((weekday - first.getUTCDay() + 7) % 7) + (nth - 1) * 7;
+  if (d > daysInMonth) d -= 7;
+  return { year: y, month: m, day: d };
+}
 
 /**
  * Validation error class for business rule violations
@@ -471,21 +483,26 @@ class MeetingService {
    * Business rule (date/frequency math) lives here; persistence is delegated
    * to the repository. Returns the created child meeting documents.
    */
-  async generateRecurringMeetings(parentMeeting, endDate) {
+  async generateRecurringMeetings(parentMeeting, endDate, { anchorDate = parentMeeting.startTime, after = null } = {}) {
     const frequency = parentMeeting.recurrence?.frequency || 'weekly';
     const duration = parentMeeting.endTime - parentMeeting.startTime;
-    const addDays = frequency === 'weekly' ? 7
-      : frequency === 'biweekly' ? 14
-      : frequency === 'triweekly' ? 21
-      : 30;
-
-    let currentDate = new Date(parentMeeting.startTime);
+    // Step in Pacific calendar dates so the weekday and local time survive month lengths and DST
+    const anchor = getPacificComponents(new Date(anchorDate));
+    const nth = Math.ceil(anchor.day / 7);
     const meetingsData = [];
 
-    while (currentDate <= endDate) {
-      currentDate = new Date(currentDate.getTime() + addDays * 24 * 60 * 60 * 1000);
+    for (let i = 1; ; i++) {
+      let target;
+      if (frequency === 'monthly') {
+        target = nthWeekdayOfMonth(anchor.year, anchor.month + i, anchor.dayOfWeek, nth);
+      } else {
+        const d = new Date(Date.UTC(anchor.year, anchor.month, anchor.day + i * (FREQUENCY_DAYS[frequency] || 7)));
+        target = { year: d.getUTCFullYear(), month: d.getUTCMonth(), day: d.getUTCDate() };
+      }
+      const currentDate = createPacificDate(target.year, target.month, target.day, anchor.hours, anchor.minutes);
 
       if (currentDate > endDate) break;
+      if (after && currentDate <= after) continue;
 
       meetingsData.push({
         student: parentMeeting.student,
@@ -556,12 +573,11 @@ class MeetingService {
       };
     }
 
-    // Find all future child meetings (scheduled/confirmed and after today)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Only replace occurrences that haven't started yet; in-progress and past sessions are left untouched
+    const now = new Date();
 
-    const deletedMeetings = await this.meetingRepo.findFutureSeriesChildren(parentId, today);
-    const deleteResult = await this.meetingRepo.deleteFutureSeriesChildren(parentId, today);
+    const deletedMeetings = await this.meetingRepo.findFutureSeriesChildren(parentId, now);
+    const deleteResult = await this.meetingRepo.deleteFutureSeriesChildren(parentId, now);
 
     // Calculate new end date (capped by quarter)
     let recurrenceEndDate = endDate ? new Date(endDate) : parentMeeting.recurrence?.endDate;
@@ -580,7 +596,12 @@ class MeetingService {
     // Recreate future meetings with new frequency if we have an end date
     let newMeetings = [];
     if (recurrenceEndDate) {
-      newMeetings = await this.generateRecurringMeetings(parentMeeting, recurrenceEndDate);
+      // New cadence continues from the most recent session rather than the original start
+      const latestStarted = await this.meetingRepo.findLatestStartedSeriesMeeting(parentId, now);
+      newMeetings = await this.generateRecurringMeetings(parentMeeting, recurrenceEndDate, {
+        anchorDate: latestStarted?.startTime || parentMeeting.startTime,
+        after: now
+      });
     }
 
     return {

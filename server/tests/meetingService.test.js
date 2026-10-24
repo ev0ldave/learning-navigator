@@ -328,6 +328,43 @@ describe('MeetingService', () => {
     });
   });
 
+  describe('generateRecurringMeetings', () => {
+    const { getPacificComponents } = require('../utils/timezone');
+    // Fri Oct 9 2026, 3:00 PM PDT
+    const anchorStart = new Date('2026-10-09T22:00:00.000Z');
+
+    const createParent = (frequency) => Meeting.create({
+      student: student._id,
+      navigator: navigator._id,
+      title: 'Series',
+      startTime: anchorStart,
+      endTime: new Date(anchorStart.getTime() + 60 * 60 * 1000),
+      isRecurring: true,
+      type: 'recurring',
+      recurrence: { frequency },
+      createdBy: navigator._id
+    });
+
+    const pacific = (meetings) => meetings.map(m => {
+      const c = getPacificComponents(m.startTime);
+      return `${c.month + 1}/${c.day} ${c.dayOfWeek} ${c.hours}:${c.minutes}`;
+    });
+
+    it('keeps monthly meetings on the same nth weekday and local time', async () => {
+      const parent = await createParent('monthly');
+      const created = await meetingService.generateRecurringMeetings(parent, new Date('2027-01-31T00:00:00Z'));
+
+      expect(pacific(created)).toEqual(['11/13 5 15:0', '12/11 5 15:0', '1/8 5 15:0']);
+    });
+
+    it('keeps weekly meetings at the same local time across DST', async () => {
+      const parent = await createParent('weekly');
+      const created = await meetingService.generateRecurringMeetings(parent, new Date('2026-11-10T00:00:00Z'));
+
+      expect(pacific(created)).toEqual(['10/16 5 15:0', '10/23 5 15:0', '10/30 5 15:0', '11/6 5 15:0']);
+    });
+  });
+
   describe('Access Control', () => {
     it('should correctly determine access for student', async () => {
       const meeting = {

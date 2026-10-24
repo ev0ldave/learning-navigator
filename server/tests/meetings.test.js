@@ -824,3 +824,71 @@ describe('DELETE /api/meetings/series/:id', () => {
     expect(meeting.cancellationReason).toBe('Schedule changed');
   });
 });
+
+describe('PUT /api/meetings/series/:id/recurrence', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  let navToken;
+  let parentMeeting;
+  let inProgressChild;
+  let futureChild;
+
+  const makeMeeting = (startTime, parentId) => Meeting.create({
+    student: student._id,
+    navigator: navigator._id,
+    title: 'Recurring Meeting',
+    startTime,
+    endTime: new Date(startTime.getTime() + 60 * 60 * 1000),
+    status: 'scheduled',
+    isRecurring: true,
+    type: 'recurring',
+    recurrence: {
+      frequency: 'weekly',
+      dayOfWeek: startTime.getDay(),
+      ...(parentId && { parentMeetingId: parentId })
+    },
+    createdBy: navigator._id
+  });
+
+  beforeEach(async () => {
+    const jwt = require('jsonwebtoken');
+    navToken = jwt.sign(
+      { userId: navigator._id },
+      process.env.JWT_SECRET || 'default-jwt-secret',
+      { expiresIn: '7d' }
+    );
+
+    const inProgressStart = new Date(Date.now() - 10 * 60 * 1000);
+    parentMeeting = await makeMeeting(new Date(inProgressStart.getTime() - 7 * DAY));
+    inProgressChild = await makeMeeting(inProgressStart, parentMeeting._id);
+    futureChild = await makeMeeting(new Date(inProgressStart.getTime() + 7 * DAY), parentMeeting._id);
+  });
+
+  it('keeps an in-progress session and continues the new cadence from it', async () => {
+    const endDate = new Date(Date.now() + 90 * DAY).toISOString();
+
+    const res = await request(app)
+      .put(`/api/meetings/series/${parentMeeting._id}/recurrence`)
+      .set('Authorization', `Bearer ${navToken}`)
+      .send({ frequency: 'monthly', endDate })
+      .expect(200);
+
+    expect(res.body.deletedCount).toBe(1);
+    expect(await Meeting.findById(inProgressChild._id)).not.toBeNull();
+    expect(await Meeting.findById(futureChild._id)).toBeNull();
+
+    const created = await Meeting.find({
+      'recurrence.parentMeetingId': parentMeeting._id,
+      _id: { $ne: inProgressChild._id }
+    }).sort({ startTime: 1 });
+
+    expect(created.length).toBeGreaterThan(0);
+    expect(created.every(m => m.startTime > new Date())).toBe(true);
+
+    const { getPacificComponents } = require('../utils/timezone');
+    const anchor = getPacificComponents(inProgressChild.startTime);
+    const next = getPacificComponents(created[0].startTime);
+    expect(next.dayOfWeek).toBe(anchor.dayOfWeek);
+    expect([next.hours, next.minutes]).toEqual([anchor.hours, anchor.minutes]);
+    expect((next.month - anchor.month + 12) % 12).toBe(1);
+  });
+});
