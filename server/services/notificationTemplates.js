@@ -267,6 +267,39 @@ class NoteSharedNotificationTemplate extends NotificationTemplate {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* No-Show (students only)                                            */
+/* ------------------------------------------------------------------ */
+class NoShowEmail extends EmailContent {
+  subject() { return 'We Missed You - Learning Navigator'; }
+  body({ meeting, student, navigator, nextMeeting }) {
+    const followUp = nextMeeting
+      ? `<p>No worries &mdash; I'll see you at our next meeting on <strong>${formatDate(nextMeeting.startTime)}</strong> at <strong>${formatTime(nextMeeting.startTime)}</strong>. If you'd also like to make up the missed session, please log in to the Learning Navigator app to reschedule.</p>`
+      : `<p>Please log in to the Learning Navigator app to reschedule at a time that works for you.</p>`;
+    return `
+      <h2>We Missed You</h2>
+      <p>Hi ${student.firstName},</p>
+      <p>We missed you at your meeting scheduled for <strong>${formatDate(meeting.startTime)}</strong> at <strong>${formatTime(meeting.startTime)}</strong>.</p>
+      ${followUp}
+      <p>Best,<br>${navigator.firstName} ${navigator.lastName}</p>
+    `;
+  }
+}
+class NoShowInApp extends InAppContent {
+  title() { return 'Missed Meeting'; }
+  message({ meeting, nextMeeting }) {
+    const followUp = nextMeeting
+      ? `See you at your next meeting on ${formatDate(nextMeeting.startTime)} at ${formatTime(nextMeeting.startTime)}.`
+      : 'Please reschedule at a time that works for you.';
+    return `You missed your meeting on ${formatDate(meeting.startTime)}. ${followUp}`;
+  }
+}
+class NoShowNotificationTemplate extends NotificationTemplate {
+  constructor() {
+    super({ email: new NoShowEmail(), inApp: new NoShowInApp(), notifyNavigator: false });
+  }
+}
+
 /**
  * Template Registry - Register all templates here
  * To add a new notification type:
@@ -278,7 +311,8 @@ const notificationTemplates = {
   cancelled: new CancelledNotificationTemplate(),
   rescheduled: new RescheduledNotificationTemplate(),
   reminder: new ReminderNotificationTemplate(),
-  note_shared: new NoteSharedNotificationTemplate()
+  note_shared: new NoteSharedNotificationTemplate(),
+  no_show: new NoShowNotificationTemplate()
 };
 
 /**
@@ -317,6 +351,7 @@ module.exports = {
   RescheduledNotificationTemplate,
   ReminderNotificationTemplate,
   NoteSharedNotificationTemplate,
+  NoShowNotificationTemplate,
   // Registry + helpers
   notificationTemplates,
   getTemplate,

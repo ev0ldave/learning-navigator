@@ -11,6 +11,7 @@ const {
   RescheduledNotificationTemplate,
   ReminderNotificationTemplate,
   NoteSharedNotificationTemplate,
+  NoShowNotificationTemplate,
   getTemplate,
   registerTemplate,
   formatDate,
@@ -161,6 +162,29 @@ describe('NotificationTemplates - Strategy Pattern', () => {
 
     it('should NOT notify navigator', () => {
       expect(template.shouldNotifyNavigator(context)).toBe(false);
+    });
+  });
+
+  describe('NoShowNotificationTemplate', () => {
+    const template = new NoShowNotificationTemplate();
+    const nextMeeting = { startTime: new Date('2026-07-22T10:00:00-07:00') };
+
+    it('should mention the next meeting when one is scheduled', () => {
+      const body = template.getEmailBody({ meeting: mockMeeting, student: mockStudent, navigator: mockNavigator, nextMeeting });
+      expect(body).toContain("see you at our next meeting");
+      expect(body).toContain(formatDate(nextMeeting.startTime));
+    });
+
+    it('should ask to reschedule when no next meeting exists', () => {
+      const body = template.getEmailBody({ meeting: mockMeeting, student: mockStudent, navigator: mockNavigator });
+      expect(body).toContain('reschedule');
+      expect(body).not.toContain('next meeting');
+      expect(body).not.toContain('reply');
+    });
+
+    it('should be registered and NOT notify navigator', () => {
+      expect(getTemplate('no_show')).toBeInstanceOf(NoShowNotificationTemplate);
+      expect(template.shouldNotifyNavigator({})).toBe(false);
     });
   });
 

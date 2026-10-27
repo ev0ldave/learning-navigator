@@ -352,6 +352,10 @@ router.put('/:id/no-show', isAuthenticated, requireNavigator, async (req, res) =
   try {
     // Use MeetingService for business logic
     const meeting = await meetingService.markNoShow(req.params.id, req.user);
+
+    const afterDate = new Date(Math.max(Date.now(), meeting.endTime.getTime()));
+    const nextMeeting = await meetingRepository.findNextBetween(meeting.student, meeting.navigator, afterDate);
+    await queueMeetingNotification(meeting._id.toString(), 'no_show', { nextMeeting });
     
     res.json({
       success: true,

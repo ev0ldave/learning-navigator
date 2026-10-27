@@ -431,6 +431,10 @@ class MeetingService {
       throw new MeetingValidationError('Only the assigned navigator can mark this meeting', 403);
     }
 
+    if (meeting.status === 'no_show') {
+      throw new MeetingValidationError('This meeting has already been marked as a no-show');
+    }
+
     meeting.status = 'no_show';
     await meeting.save();
 

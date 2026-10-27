@@ -538,6 +538,18 @@ describe('Meeting Status', () => {
 
     expect(res.body.success).toBe(true);
     expect(res.body.meeting.status).toBe('no_show');
+
+    const Notification = require('../models/Notification');
+    const notification = await Notification.findOne({ recipient: student._id, type: 'meeting_no_show' });
+    expect(notification).not.toBeNull();
+
+    const repeat = await request(app)
+      .put(`/api/meetings/${meeting._id}/no-show`)
+      .set('Authorization', `Bearer ${navToken}`)
+      .expect(400);
+
+    expect(repeat.body.message).toContain('already been marked');
+    expect(await Notification.countDocuments({ recipient: student._id, type: 'meeting_no_show' })).toBe(1);
   });
 });
 

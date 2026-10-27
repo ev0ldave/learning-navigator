@@ -116,7 +116,7 @@ const meetingSchema = new mongoose.Schema({
   notificationsSent: [{
     type: {
       type: String,
-      enum: ['scheduled', 'reminder', 'cancelled', 'rescheduled']
+      enum: ['scheduled', 'reminder', 'cancelled', 'rescheduled', 'no_show']
     },
     sentAt: Date,
     sentTo: [{

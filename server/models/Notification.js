@@ -17,6 +17,7 @@ const notificationSchema = new mongoose.Schema({
       'meeting_cancelled',
       'meeting_rescheduled',
       'meeting_reminder',
+      'meeting_no_show',
       'note_shared',
       'profile_updated',
       'navigator_assigned',

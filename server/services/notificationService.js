@@ -188,7 +188,7 @@ class NotificationService {
    * Send a meeting notification using the strategy template (catches email
    * failures so a delivery hiccup does not abort the operation).
    */
-  async sendMeetingNotification(meeting, type) {
+  async sendMeetingNotification(meeting, type, extraContext = {}) {
     try {
       const student = await this._resolveUser(meeting.student);
       const navigator = await this._resolveUser(meeting.navigator);
@@ -199,7 +199,7 @@ class NotificationService {
       }
 
       const template = this.resolveTemplate(type);
-      const context = { meeting, student, navigator };
+      const context = { ...extraContext, meeting, student, navigator };
 
       const emailSubject = template.email.subject(context);
       const emailBody = template.email.body(context);
@@ -423,7 +423,7 @@ const notificationService = new NotificationService();
 // Backward-compatible function API (delegates to the default service instance)
 const sendEmail = (to, subject, html, text) => notificationService.sendEmail(to, subject, html, text);
 const createNotification = (data) => notificationService.createNotification(data);
-const sendMeetingNotification = (meeting, type) => notificationService.sendMeetingNotification(meeting, type);
+const sendMeetingNotification = (meeting, type, extraContext) => notificationService.sendMeetingNotification(meeting, type, extraContext);
 const sendNoteSharedNotification = (note, student) => notificationService.sendNoteSharedNotification(note, student);
 const sendEmailDirect = (to, subject, html, text) => notificationService.sendEmailDirect(to, subject, html, text);
 const sendMeetingNotificationDirect = (meeting, type) => notificationService.sendMeetingNotificationDirect(meeting, type);

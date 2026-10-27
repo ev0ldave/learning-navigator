@@ -63,7 +63,7 @@ const queueCalendarDelete = async (meeting) => {
 };
 
 // Notification operations - execute directly with error handling
-const queueMeetingNotification = async (meetingId, type) => {
+const queueMeetingNotification = async (meetingId, type, extraContext = {}) => {
   try {
     const meeting = await Meeting.findById(meetingId)
       .populate('student')
@@ -73,7 +73,7 @@ const queueMeetingNotification = async (meetingId, type) => {
       return { skipped: true };
     }
     
-    return await sendMeetingNotification(meeting, type);
+    return await sendMeetingNotification(meeting, type, extraContext);
   } catch (error) {
     console.error('Meeting notification failed:', error.message);
     return { error: error.message };

@@ -107,6 +107,15 @@ class MeetingRepository extends BaseRepository {
     });
   }
 
+  async findNextBetween(studentId, navigatorId, afterDate) {
+    return this.model.findOne({
+      student: studentId,
+      navigator: navigatorId,
+      startTime: { $gt: afterDate },
+      status: { $in: ['scheduled', 'confirmed'] }
+    }).sort({ startTime: 1 });
+  }
+
   async findConflicting(navigatorId, startTime, endTime, excludeMeetingId = null) {
     const query = {
       navigator: navigatorId,
