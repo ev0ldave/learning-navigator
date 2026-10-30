@@ -27,6 +27,7 @@ import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { meetingsAPI, usersAPI } from '../services/api';
 import BookMeetingDialog from '../components/meetings/BookMeetingDialog';
+import RecurringChip from '../components/meetings/RecurringChip';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
@@ -254,12 +255,14 @@ const Dashboard = () => {
                             </>
                           }
                         />
-                        <Chip
-                          label={meeting.status}
-                          size="small"
-                          color={getStatusColor(meeting.status)}
-                          sx={{ alignSelf: { xs: 'flex-start', sm: 'center' }, mt: { xs: 1, sm: 0 } }}
-                        />
+                        <Box sx={{ display: 'flex', gap: 1, alignSelf: { xs: 'flex-start', sm: 'center' }, mt: { xs: 1, sm: 0 } }}>
+                          <RecurringChip meeting={meeting} />
+                          <Chip
+                            label={meeting.status}
+                            size="small"
+                            color={getStatusColor(meeting.status)}
+                          />
+                        </Box>
                       </ListItemButton>
                     </ListItem>
                   ))}

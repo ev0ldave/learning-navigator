@@ -216,6 +216,21 @@ class MeetingService {
   }
 
   /**
+   * A student may only have one active recurring series at a time
+   */
+  async validateSingleRecurringSeries(studentId, userRole) {
+    const existing = await this.meetingRepo.findActiveRecurringForStudent(studentId);
+    if (!existing) return;
+
+    const who = userRole === 'student' ? 'You already have' : 'This student already has';
+    throw new MeetingValidationError(
+      `${who} a recurring meeting. Only one recurring meeting is allowed - please delete the existing recurring series before scheduling a new one.`,
+      409,
+      { existingRecurringMeetingId: existing._id }
+    );
+  }
+
+  /**
    * Calculate recurrence settings based on user role
    */
   async calculateRecurrenceSettings(isRecurring, userRole, recurrence) {
@@ -262,6 +277,10 @@ class MeetingService {
 
     // Past meetings cannot be recurring
     const isRecurring = isRetroactive ? false : (meetingData.isRecurring || false);
+
+    if (isRecurring) {
+      await this.validateSingleRecurringSeries(studentId, user.role);
+    }
 
     // Calculate recurrence settings
     const { frequency: recurrenceFrequency, endDate: recurrenceEndDate } = 

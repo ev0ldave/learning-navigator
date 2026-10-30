@@ -63,7 +63,7 @@ const Calendar = () => {
       if (response.data.success) {
         const formattedEvents = response.data.events.map(event => ({
           id: event.id,
-          title: event.title,
+          title: event.isRecurring ? `↻ ${event.title}` : event.title,
           start: event.start,
           end: event.end,
           allDay: event.allDay || false,

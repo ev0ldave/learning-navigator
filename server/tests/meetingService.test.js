@@ -252,6 +252,42 @@ describe('MeetingService', () => {
       
       expect(result.frequency).toBe('biweekly');
     });
+
+    describe('validateSingleRecurringSeries', () => {
+      const DAY = 24 * 60 * 60 * 1000;
+      const makeRecurring = (offsetDays, status = 'scheduled') => Meeting.create({
+        student: student._id,
+        navigator: navigator._id,
+        title: 'Recurring',
+        startTime: new Date(Date.now() + offsetDays * DAY),
+        endTime: new Date(Date.now() + offsetDays * DAY + 30 * 60 * 1000),
+        status,
+        isRecurring: true,
+        type: 'recurring',
+        createdBy: student._id
+      });
+
+      it('should reject when the student has an active recurring series', async () => {
+        const existing = await makeRecurring(7);
+        const error = await meetingService
+          .validateSingleRecurringSeries(student._id, 'student')
+          .catch(e => e);
+
+        expect(error).toBeInstanceOf(MeetingValidationError);
+        expect(error.statusCode).toBe(409);
+        expect(error.message).toContain('delete the existing recurring series');
+        expect(error.details.existingRecurringMeetingId.toString()).toBe(existing._id.toString());
+      });
+
+      it('should allow when the only recurring meetings are cancelled or past', async () => {
+        await makeRecurring(7, 'cancelled');
+        await makeRecurring(-7);
+
+        await expect(
+          meetingService.validateSingleRecurringSeries(student._id, 'student')
+        ).resolves.toBeUndefined();
+      });
+    });
   });
 
   describe('Meeting Operations', () => {

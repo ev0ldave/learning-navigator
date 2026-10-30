@@ -8,6 +8,7 @@ import { ArrowBack as BackIcon, Note as NoteIcon, EventNote as MeetingIcon } fro
 import { format } from 'date-fns';
 import { usersAPI, notesAPI, meetingsAPI } from '../services/api';
 import { formatPhoneNumber } from '../utils/phoneFormat';
+import RecurringChip from '../components/meetings/RecurringChip';
 
 const StudentDetail = () => {
   const { id } = useParams();
@@ -157,6 +158,7 @@ const StudentDetail = () => {
                           primary={meeting.title}
                           secondary={format(new Date(meeting.startTime), 'MMM d, yyyy h:mm a')}
                         />
+                        <RecurringChip meeting={meeting} sx={{ mr: 1 }} />
                         <Chip label={meeting.status} size="small" />
                       </ListItem>
                     ))

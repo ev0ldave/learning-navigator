@@ -43,11 +43,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { meetingsAPI, notesAPI } from '../services/api';
 import { formatPhoneNumber } from '../utils/phoneFormat';
+import RecurringChip from '../components/meetings/RecurringChip';
 
 const MeetingDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isNavigator, user } = useAuth();
+  const { isNavigator, isStudent, user } = useAuth();
   const { showSuccess, showError } = useNotification();
   
   const [meeting, setMeeting] = useState(null);
@@ -249,7 +250,7 @@ const MeetingDetail = () => {
   const canComplete = meeting.status === 'scheduled' && isPast && isNavigator();
   const canMarkNoShow = meeting.status === 'scheduled' && tenMinutesAfterStart && isNavigator();
   const isRecurring = meeting.isRecurring || meeting.recurrence?.parentMeetingId;
-  const canDeleteSeries = isRecurring && isNavigator();
+  const canDeleteSeries = isRecurring && (isNavigator() || isStudent());
 
   return (
     <Box>
@@ -275,7 +276,9 @@ const MeetingDetail = () => {
                     icon={getLocationIcon(meeting.location)}
                     label={meeting.location}
                     variant="outlined"
+                    sx={{ mr: 1 }}
                   />
+                  <RecurringChip meeting={meeting} size="medium" />
                 </Box>
               </Box>
 

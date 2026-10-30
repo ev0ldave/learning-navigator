@@ -116,6 +116,15 @@ class MeetingRepository extends BaseRepository {
     }).sort({ startTime: 1 });
   }
 
+  async findActiveRecurringForStudent(studentId) {
+    return this.model.findOne({
+      student: studentId,
+      isRecurring: true,
+      startTime: { $gte: new Date() },
+      status: { $in: ['scheduled', 'confirmed'] }
+    }).sort({ startTime: 1 });
+  }
+
   async findConflicting(navigatorId, startTime, endTime, excludeMeetingId = null) {
     const query = {
       navigator: navigatorId,

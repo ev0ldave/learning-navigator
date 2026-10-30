@@ -32,6 +32,7 @@ import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { meetingsAPI } from '../services/api';
 import BookMeetingDialog from '../components/meetings/BookMeetingDialog';
+import RecurringChip from '../components/meetings/RecurringChip';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
@@ -270,6 +271,7 @@ const Meetings = () => {
                       width: { xs: '100%', sm: 'auto' }
                     }}
                   >
+                    <RecurringChip meeting={meeting} />
                     <Chip
                       label={meeting.location}
                       size="small"

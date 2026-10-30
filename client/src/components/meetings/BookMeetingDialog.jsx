@@ -20,6 +20,7 @@ import {
   Chip
 } from '@mui/material';
 import { DatePicker, TimePicker } from '@mui/x-date-pickers';
+import { useNavigate } from 'react-router-dom';
 import { addMinutes, addDays, format, startOfDay, isAfter, setHours, setMinutes } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
@@ -39,6 +40,7 @@ const formatPacificTime = (date) => {
 const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
   const { user, isStudent, isNavigator } = useAuth();
   const { showSuccess, showError } = useNotification();
+  const navigate = useNavigate();
   
   const [loading, setLoading] = useState(false);
   const [navigators, setNavigators] = useState([]);
@@ -46,6 +48,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
   const [availableSlots, setAvailableSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [error, setError] = useState(null);
+  const [existingRecurringId, setExistingRecurringId] = useState(null);
   const [activeQuarter, setActiveQuarter] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
 
@@ -142,6 +145,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
       setAvailableSlots([]); // Clear slots when reopening
       setFieldErrors({}); // Clear field errors when reopening
       setError(null); // Clear general error when reopening
+      setExistingRecurringId(null);
     }
   }, [open, initialDate]);
 
@@ -218,6 +222,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
   const handleSubmit = async () => {
     try {
       setError(null);
+      setExistingRecurringId(null);
       const errors = {};
       
       // Validate required fields and collect all errors
@@ -348,6 +353,7 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
     } catch (err) {
       const message = err.response?.data?.message || 'Failed to schedule meeting';
       setError(message);
+      setExistingRecurringId(err.response?.data?.existingRecurringMeetingId || null);
       showError(message);
     } finally {
       setLoading(false);
@@ -370,7 +376,22 @@ const BookMeetingDialog = ({ open, onClose, onSuccess, initialDate }) => {
       </DialogTitle>
       <DialogContent>
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert
+            severity="error"
+            sx={{ mb: 2 }}
+            action={existingRecurringId && (
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  onClose();
+                  navigate(`/meetings/${existingRecurringId}`);
+                }}
+              >
+                View Existing
+              </Button>
+            )}
+          >
             {error}
           </Alert>
         )}

@@ -174,6 +174,99 @@ describe('Meeting Routes', () => {
       expect(res.body.meeting.location).toBe('phone');
       expect(res.body.meeting.phoneNumber).toBe('555-123-4567');
     });
+
+    it('should reject a second recurring meeting and point to the existing one', async () => {
+      const existingStart = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const existing = await Meeting.create({
+        student: student._id,
+        navigator: navigator._id,
+        title: 'Existing Recurring',
+        startTime: existingStart,
+        endTime: new Date(existingStart.getTime() + 30 * 60 * 1000),
+        status: 'scheduled',
+        isRecurring: true,
+        type: 'recurring',
+        createdBy: student._id
+      });
+
+      const startTime = new Date();
+      startTime.setDate(startTime.getDate() + 2);
+      while (startTime.getDay() === 0 || startTime.getDay() === 6) {
+        startTime.setDate(startTime.getDate() + 1);
+      }
+      startTime.setHours(10, 0, 0, 0);
+
+      const res = await request(app)
+        .post('/api/meetings')
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({
+          navigatorId: navigator._id.toString(),
+          startTime: startTime.toISOString(),
+          endTime: new Date(startTime.getTime() + 30 * 60 * 1000).toISOString(),
+          location: 'virtual',
+          isRecurring: true
+        })
+        .expect(409);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toContain('delete the existing recurring series');
+      expect(res.body.existingRecurringMeetingId).toBe(existing._id.toString());
+      expect(await Meeting.countDocuments({ student: student._id })).toBe(1);
+    });
+
+    it('should let a navigator schedule recurring meetings with multiple students', async () => {
+      const jwt = require('jsonwebtoken');
+      const navToken = jwt.sign(
+        { userId: navigator._id },
+        process.env.JWT_SECRET || 'default-jwt-secret',
+        { expiresIn: '7d' }
+      );
+      const secondStudent = await User.create({
+        email: 'student2@example.com',
+        firstName: 'Second',
+        lastName: 'Student',
+        role: 'student',
+        isActive: true,
+        assignedNavigator: navigator._id
+      });
+
+      // First student already has a recurring series with this navigator
+      const existingStart = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await Meeting.create({
+        student: student._id,
+        navigator: navigator._id,
+        title: 'Existing Recurring',
+        startTime: existingStart,
+        endTime: new Date(existingStart.getTime() + 30 * 60 * 1000),
+        status: 'scheduled',
+        isRecurring: true,
+        type: 'recurring',
+        createdBy: navigator._id
+      });
+
+      const startTime = new Date();
+      startTime.setDate(startTime.getDate() + 2);
+      while (startTime.getDay() === 0 || startTime.getDay() === 6) {
+        startTime.setDate(startTime.getDate() + 1);
+      }
+      startTime.setHours(10, 0, 0, 0);
+
+      const res = await request(app)
+        .post('/api/meetings')
+        .set('Authorization', `Bearer ${navToken}`)
+        .send({
+          navigatorId: navigator._id.toString(),
+          studentId: secondStudent._id.toString(),
+          startTime: startTime.toISOString(),
+          endTime: new Date(startTime.getTime() + 30 * 60 * 1000).toISOString(),
+          location: 'virtual',
+          isRecurring: true
+        })
+        .expect(201);
+
+      expect(res.body.meeting.isRecurring).toBe(true);
+      expect(res.body.meeting.student._id).toBe(secondStudent._id.toString());
+    });
   });
 
   describe('GET /api/meetings', () => {
