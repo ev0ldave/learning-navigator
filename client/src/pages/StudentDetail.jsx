@@ -60,8 +60,10 @@ const formatChangeValue = (field, value) => {
 const StudentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isNavigator } = useAuth();
+  const { isNavigator, isAdmin, user } = useAuth();
   const canViewHistory = isNavigator();
+  // Server only allows admins or the meeting's own navigator to open a meeting.
+  const canOpenMeeting = (log) => isAdmin() || (user?._id && String(log.navigator) === String(user._id));
   const [student, setStudent] = useState(null);
   const [notes, setNotes] = useState([]);
   const [meetings, setMeetings] = useState([]);
@@ -262,11 +264,12 @@ const StudentDetail = () => {
                   <List>
                     {history.map(log => {
                       const action = ACTION_LABELS[log.action] || { label: log.action, color: 'default' };
+                      const openable = canOpenMeeting(log);
                       return (
                         <ListItem
                           key={log._id}
-                          button
-                          onClick={() => navigate(`/meetings/${log.meeting}`)}
+                          button={openable}
+                          onClick={openable ? () => navigate(`/meetings/${log.meeting}`) : undefined}
                           sx={{ bgcolor: 'background.default', mb: 1, borderRadius: 1, flexDirection: 'column', alignItems: 'flex-start' }}
                         >
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', width: '100%' }}>
@@ -285,6 +288,11 @@ const StudentDetail = () => {
                             <Typography variant="body2" sx={{ mt: 0.5 }}>
                               {log.snapshot.title || 'Meeting'}
                               {log.snapshot.startTime && ` — ${formatPacific(log.snapshot.startTime)}`}
+                              {!openable && (
+                                <Typography component="span" variant="caption" color="text.secondary">
+                                  {' '}(another navigator's meeting)
+                                </Typography>
+                              )}
                             </Typography>
                           )}
                           {log.changes?.length > 0 && (

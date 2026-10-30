@@ -181,6 +181,38 @@ describe('admin_reader read-only enforcement', () => {
       .send({ firstName: 'Samuel' })
       .expect(200);
   });
+
+  it('can open any meeting and its notes without impersonating, but not change it', async () => {
+    const Meeting = require('../models/Meeting');
+    const startTime = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const meeting = await Meeting.create({
+      student: student._id,
+      navigator: navigator._id,
+      title: 'Check-in',
+      startTime,
+      endTime: new Date(startTime.getTime() + 30 * 60 * 1000),
+      status: 'scheduled',
+      createdBy: student._id
+    });
+
+    const res = await request(app)
+      .get(`/api/meetings/${meeting._id}`)
+      .set('Authorization', `Bearer ${readerToken}`)
+      .expect(200);
+    expect(res.body.meeting._id).toBe(meeting._id.toString());
+
+    await request(app)
+      .get(`/api/notes/meeting/${meeting._id}`)
+      .set('Authorization', `Bearer ${readerToken}`)
+      .expect(200);
+
+    await request(app)
+      .put(`/api/meetings/${meeting._id}/cancel`)
+      .set('Authorization', `Bearer ${readerToken}`)
+      .send({ reason: 'test' })
+      .expect(403);
+    expect((await Meeting.findById(meeting._id)).status).toBe('scheduled');
+  });
 });
 
 describe('admin_reader impersonation', () => {

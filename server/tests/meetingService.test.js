@@ -430,6 +430,16 @@ describe('MeetingService', () => {
       expect(meetingService.hasAccess(meeting, admin)).toBe(true);
     });
 
+    it('should allow read access for admin_reader', async () => {
+      const reader = { _id: new mongoose.Types.ObjectId(), role: 'admin_reader' };
+      const meeting = {
+        student: { _id: student._id },
+        navigator: { _id: navigator._id }
+      };
+
+      expect(meetingService.hasAccess(meeting, reader)).toBe(true);
+    });
+
     it('should deny access to unrelated users', async () => {
       const otherUser = { _id: new mongoose.Types.ObjectId(), role: 'student' };
       const meeting = {

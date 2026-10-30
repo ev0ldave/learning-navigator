@@ -65,7 +65,7 @@ class NoteService {
    * Check if user has access to a meeting's notes
    */
   hasMeetingAccess(meeting, user) {
-    if (user.role === 'administrator') return true;
+    if (user.role === 'administrator' || user.role === 'admin_reader') return true;
     return (
       meeting.student.toString() === user._id.toString() ||
       meeting.navigator.toString() === user._id.toString()

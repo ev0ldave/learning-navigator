@@ -701,6 +701,7 @@ class MeetingService {
   hasAccess(meeting, user) {
     return (
       user.role === 'administrator' ||
+      user.role === 'admin_reader' ||
       meeting.student._id.toString() === user._id.toString() ||
       meeting.navigator._id.toString() === user._id.toString()
     );
