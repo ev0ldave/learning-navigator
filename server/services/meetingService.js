@@ -4,9 +4,14 @@
  */
 const { meetingRepository, userRepository, availabilityRepository, quarterRepository } = require('../repositories');
 const { getPacificDayOfWeek, getPacificComponents, createPacificDate } = require('../utils/timezone');
+const meetingAuditService = require('./meetingAuditService');
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const FREQUENCY_DAYS = { weekly: 7, biweekly: 14, triweekly: 21 };
+
+const formatPacificDate = (date) => new Date(date).toLocaleDateString('en-US', {
+  timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric'
+});
 
 // nth weekday of a month (monthIndex may overflow past 11); a missing 5th occurrence falls back to the last one
 function nthWeekdayOfMonth(year, monthIndex, weekday, nth) {
@@ -39,13 +44,15 @@ class MeetingService {
     meetingRepo = meetingRepository,
     userRepo = userRepository,
     availabilityRepo = availabilityRepository,
-    quarterRepo = quarterRepository
+    quarterRepo = quarterRepository,
+    audit = meetingAuditService
   ) {
     // Dependency injection for testability
     this.meetingRepo = meetingRepo;
     this.userRepo = userRepo;
     this.availabilityRepo = availabilityRepo;
     this.quarterRepo = quarterRepo;
+    this.audit = audit;
   }
 
   /**
@@ -325,6 +332,14 @@ class MeetingService {
       createdBy: user._id
     });
 
+    let details;
+    if (isRetroactive) {
+      details = `Past meeting recorded as ${status}`;
+    } else if (isRecurring) {
+      details = `Recurring ${recurrenceFrequency}${recurrenceEndDate ? ` until ${formatPacificDate(recurrenceEndDate)}` : ''}`;
+    }
+    await this.audit.logChange(meeting, 'created', user, { details });
+
     return { meeting, recurrenceEndDate, isRetroactive };
   }
 
@@ -350,6 +365,7 @@ class MeetingService {
 
     const { startTime, endTime, title, description, location, meetingLink, phoneNumber } = updateData;
     const isRescheduling = startTime || endTime;
+    const before = this.audit.captureState(meeting);
 
     // Check for conflicts if rescheduling
     if (isRescheduling) {
@@ -380,6 +396,12 @@ class MeetingService {
 
     await meeting.save();
 
+    const changes = this.audit.diffState(before, meeting);
+    if (changes.length) {
+      const timeChanged = changes.some(c => c.field === 'startTime' || c.field === 'endTime');
+      await this.audit.logChange(meeting, timeChanged ? 'rescheduled' : 'updated', user, { changes });
+    }
+
     return { meeting, isRescheduling };
   }
 
@@ -403,12 +425,18 @@ class MeetingService {
       throw new MeetingValidationError('You do not have permission to cancel this meeting', 403);
     }
 
+    const previousStatus = meeting.status;
     meeting.status = 'cancelled';
     meeting.cancelledBy = user._id;
     meeting.cancellationReason = reason;
     meeting.cancelledAt = new Date();
 
     await meeting.save();
+
+    await this.audit.logChange(meeting, 'cancelled', user, {
+      changes: [{ field: 'status', from: previousStatus, to: 'cancelled' }],
+      details: reason ? `Reason: ${reason}` : undefined
+    });
 
     return meeting;
   }
@@ -429,8 +457,13 @@ class MeetingService {
       throw new MeetingValidationError('Only the assigned navigator can complete this meeting', 403);
     }
 
+    const previousStatus = meeting.status;
     meeting.status = 'completed';
     await meeting.save();
+
+    await this.audit.logChange(meeting, 'completed', user, {
+      changes: [{ field: 'status', from: previousStatus, to: 'completed' }]
+    });
 
     return meeting;
   }
@@ -454,8 +487,13 @@ class MeetingService {
       throw new MeetingValidationError('This meeting has already been marked as a no-show');
     }
 
+    const previousStatus = meeting.status;
     meeting.status = 'no_show';
     await meeting.save();
+
+    await this.audit.logChange(meeting, 'no_show', user, {
+      changes: [{ field: 'status', from: previousStatus, to: 'no_show' }]
+    });
 
     return meeting;
   }
@@ -497,6 +535,16 @@ class MeetingService {
     // Cancel all meetings
     const meetingIds = meetingsToDelete.map(m => m._id);
     await this.meetingRepo.cancelMeetings(meetingIds, user._id, reason || 'Recurring series deleted');
+
+    const details = `Recurring series cancelled (${scope === 'future' ? 'this and future meetings' : 'entire series'})${reason ? `. Reason: ${reason}` : ''}`;
+    for (const cancelled of meetingsToDelete) {
+      const previousStatus = cancelled.status;
+      cancelled.status = 'cancelled';
+      await this.audit.logChange(cancelled, 'cancelled', user, {
+        changes: [{ field: 'status', from: previousStatus, to: 'cancelled' }],
+        details
+      });
+    }
 
     return meetingsToDelete;
   }
@@ -583,6 +631,7 @@ class MeetingService {
     }
 
     const oldFrequency = parentMeeting.recurrence?.frequency || 'weekly';
+    const oldEndDate = parentMeeting.recurrence?.endDate;
 
     // If frequency hasn't changed and no new end date, nothing to do
     if (oldFrequency === frequency && !endDate) {
@@ -626,6 +675,15 @@ class MeetingService {
         after: now
       });
     }
+
+    const recurrenceChanges = [{ field: 'frequency', from: oldFrequency, to: frequency }];
+    if (endDate) {
+      recurrenceChanges.push({ field: 'recurrenceEndDate', from: oldEndDate ?? null, to: recurrenceEndDate ?? null });
+    }
+    await this.audit.logChange(parentMeeting, 'recurrence_updated', user, {
+      changes: recurrenceChanges,
+      details: `${deleteResult.deletedCount} future meeting(s) removed, ${newMeetings.length} created`
+    });
 
     return {
       noChanges: false,

@@ -5,6 +5,7 @@ const { userRepository } = require('../repositories');
 const userService = require('../services/userService');
 const { UserValidationError } = require('../services/userService');
 const { generateUsersExcel } = require('../services/excelService');
+const meetingAuditService = require('../services/meetingAuditService');
 const { 
   isAuthenticated, 
   requireAdmin, 
@@ -310,6 +311,30 @@ router.get('/:id', isAuthenticated, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching user'
+    });
+  }
+});
+
+// @route   GET /api/users/:id/meeting-history
+// @desc    Audit trail of meeting changes for a student
+// @access  Private/Navigator
+router.get('/:id/meeting-history', isAuthenticated, requireNavigator, async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
+
+    const { logs, total } = await meetingAuditService.getStudentHistory(req.params.id, { page, limit });
+
+    res.json({
+      success: true,
+      logs,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) }
+    });
+  } catch (error) {
+    console.error('Get meeting history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching meeting history'
     });
   }
 });

@@ -5,6 +5,7 @@ const Notification = require('./Notification');
 const Report = require('./Report');
 const UnavailableBlock = require('./UnavailableBlock');
 const SchoolQuarter = require('./SchoolQuarter');
+const MeetingAuditLog = require('./MeetingAuditLog');
 
 module.exports = {
   User,
@@ -13,5 +14,6 @@ module.exports = {
   Notification,
   Report,
   UnavailableBlock,
-  SchoolQuarter
+  SchoolQuarter,
+  MeetingAuditLog
 };

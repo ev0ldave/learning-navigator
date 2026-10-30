@@ -5,6 +5,7 @@
 const { userRepository } = require('../repositories');
 const Meeting = require('../models/Meeting');
 const { updateCalendarEvent } = require('./calendarService');
+const meetingAuditService = require('./meetingAuditService');
 
 /**
  * Validation error class for business rule violations
@@ -112,7 +113,7 @@ class UserService {
     // Update future meetings if zoom link changed
     let meetingsUpdated = 0;
     if (zoomLinkChanged && user.zoomLink) {
-      meetingsUpdated = await this._updateMeetingsWithZoomLink(user);
+      meetingsUpdated = await this._updateMeetingsWithZoomLink(user, requestingUser);
     }
 
     return { user, meetingsUpdated };
@@ -121,7 +122,7 @@ class UserService {
   /**
    * Update meetings with new zoom link
    */
-  async _updateMeetingsWithZoomLink(user) {
+  async _updateMeetingsWithZoomLink(user, requestingUser = null) {
     let meetingsUpdated = 0;
     try {
       const now = new Date();
@@ -133,8 +134,13 @@ class UserService {
       }).populate('student navigator');
 
       for (const meeting of futureMeetings) {
+        const previousLink = meeting.meetingLink;
         meeting.meetingLink = user.zoomLink;
         await meeting.save();
+        await meetingAuditService.logChange(meeting, 'updated', requestingUser, {
+          changes: [{ field: 'meetingLink', from: previousLink ?? null, to: user.zoomLink }],
+          details: 'Navigator Zoom link changed'
+        });
 
         try {
           await updateCalendarEvent(meeting);

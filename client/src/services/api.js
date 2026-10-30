@@ -57,6 +57,7 @@ export const usersAPI = {
   getStudents: (params) => api.get('/users/students', { params }),
   getMyStudents: () => api.get('/users/my-students'),
   getById: (id) => api.get(`/users/${id}`),
+  getMeetingHistory: (id, params) => api.get(`/users/${id}/meeting-history`, { params }),
   update: (id, data) => api.put(`/users/${id}`, data),
   updateRole: (id, role) => api.put(`/users/${id}/role`, { role }),
   updateStatus: (id, isActive) => api.put(`/users/${id}/status`, { isActive }),

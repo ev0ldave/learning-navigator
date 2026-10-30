@@ -408,6 +408,81 @@ describe('GET /api/meetings/upcoming', () => {
   });
 });
 
+describe('GET /api/users/:id/meeting-history', () => {
+  it('records who created, rescheduled, and cancelled a meeting', async () => {
+    const MeetingAuditLog = require('../models/MeetingAuditLog');
+    await MeetingAuditLog.deleteMany({});
+    const jwt = require('jsonwebtoken');
+    const navToken = jwt.sign(
+      { userId: navigator._id },
+      process.env.JWT_SECRET || 'default-jwt-secret',
+      { expiresIn: '7d' }
+    );
+
+    const startTime = new Date();
+    startTime.setDate(startTime.getDate() + 2);
+    while (startTime.getDay() === 0 || startTime.getDay() === 6) {
+      startTime.setDate(startTime.getDate() + 1);
+    }
+    startTime.setHours(10, 0, 0, 0);
+    const endTime = new Date(startTime.getTime() + 30 * 60 * 1000);
+
+    const created = await request(app)
+      .post('/api/meetings')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({
+        navigatorId: navigator._id.toString(),
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        location: 'virtual'
+      })
+      .expect(201);
+    const meetingId = created.body.meeting._id;
+
+    const newStart = new Date(startTime.getTime() + 2 * 60 * 60 * 1000);
+    const newEnd = new Date(newStart.getTime() + 30 * 60 * 1000);
+    await request(app)
+      .put(`/api/meetings/${meetingId}`)
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ startTime: newStart.toISOString(), endTime: newEnd.toISOString() })
+      .expect(200);
+
+    await request(app)
+      .put(`/api/meetings/${meetingId}/cancel`)
+      .set('Authorization', `Bearer ${navToken}`)
+      .send({ reason: 'Conflict' })
+      .expect(200);
+
+    const res = await request(app)
+      .get(`/api/users/${student._id}/meeting-history`)
+      .set('Authorization', `Bearer ${navToken}`)
+      .expect(200);
+
+    expect(res.body.logs.map(l => l.action)).toEqual(['cancelled', 'rescheduled', 'created']);
+    const [cancelled, rescheduled, createdLog] = res.body.logs;
+
+    expect(createdLog.performedByRole).toBe('student');
+    expect(createdLog.performedBy).toBe(student._id.toString());
+
+    expect(rescheduled.performedByName).toBe('Test Student');
+    expect(rescheduled.performedByRole).toBe('student');
+    const startChange = rescheduled.changes.find(c => c.field === 'startTime');
+    expect(new Date(startChange.from).getTime()).toBe(startTime.getTime());
+    expect(new Date(startChange.to).getTime()).toBe(newStart.getTime());
+
+    expect(cancelled.performedByRole).toBe('learning_navigator');
+    expect(cancelled.details).toContain('Conflict');
+    expect(cancelled.createdAt).toBeDefined();
+  });
+
+  it('is not available to students', async () => {
+    await request(app)
+      .get(`/api/users/${student._id}/meeting-history`)
+      .set('Authorization', `Bearer ${studentToken}`)
+      .expect(403);
+  });
+});
+
 describe('GET /api/meetings/:id', () => {
   let meeting;
 

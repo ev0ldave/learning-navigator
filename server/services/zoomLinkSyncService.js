@@ -10,6 +10,7 @@ const Meeting = require('../models/Meeting');
 const User = require('../models/User');
 const { updateCalendarEvent } = require('./calendarService');
 const { sendEmail } = require('./notificationService');
+const meetingAuditService = require('./meetingAuditService');
 
 /**
  * Send email notification about updated zoom link
@@ -97,8 +98,13 @@ const syncZoomLinks = async () => {
         
         for (const meeting of meetingsToUpdate) {
           try {
+            const previousLink = meeting.meetingLink;
             meeting.meetingLink = navigator.zoomLink;
             await meeting.save();
+            await meetingAuditService.logChange(meeting, 'updated', null, {
+              changes: [{ field: 'meetingLink', from: previousLink ?? null, to: navigator.zoomLink }],
+              details: 'Automatic Zoom link sync'
+            });
             
             const calResult = await updateCalendarEvent(meeting);
             

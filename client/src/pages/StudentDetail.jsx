@@ -4,24 +4,104 @@ import {
   Box, Card, CardContent, Typography, Button, Grid, Avatar,
   CircularProgress, Alert, Tabs, Tab, List, ListItem, ListItemText, Chip
 } from '@mui/material';
-import { ArrowBack as BackIcon, Note as NoteIcon, EventNote as MeetingIcon } from '@mui/icons-material';
+import { ArrowBack as BackIcon, Note as NoteIcon, EventNote as MeetingIcon, History as HistoryIcon } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { usersAPI, notesAPI, meetingsAPI } from '../services/api';
 import { formatPhoneNumber } from '../utils/phoneFormat';
 import RecurringChip from '../components/meetings/RecurringChip';
+import { useAuth } from '../contexts/AuthContext';
+
+const HISTORY_PAGE_SIZE = 50;
+
+const ACTION_LABELS = {
+  created: { label: 'Created', color: 'success' },
+  updated: { label: 'Updated', color: 'info' },
+  rescheduled: { label: 'Rescheduled', color: 'warning' },
+  cancelled: { label: 'Cancelled', color: 'error' },
+  completed: { label: 'Completed', color: 'success' },
+  no_show: { label: 'No-show', color: 'error' },
+  recurrence_updated: { label: 'Recurrence changed', color: 'secondary' }
+};
+
+const FIELD_LABELS = {
+  startTime: 'Start time',
+  endTime: 'End time',
+  title: 'Title',
+  description: 'Description',
+  location: 'Location',
+  meetingLink: 'Meeting link',
+  phoneNumber: 'Phone number',
+  status: 'Status',
+  frequency: 'Frequency',
+  recurrenceEndDate: 'Recurrence end date'
+};
+
+const ROLE_LABELS = {
+  student: 'Student',
+  learning_navigator: 'Learning Navigator',
+  administrator: 'Administrator',
+  system: 'System'
+};
+
+const DATE_FIELDS = ['startTime', 'endTime', 'recurrenceEndDate'];
+
+const formatPacific = (value) => `${new Date(value).toLocaleString('en-US', {
+  timeZone: 'America/Los_Angeles',
+  dateStyle: 'medium',
+  timeStyle: 'short'
+})} PT`;
+
+const formatChangeValue = (field, value) => {
+  if (value === null || value === undefined || value === '') return '(none)';
+  if (DATE_FIELDS.includes(field)) return formatPacific(value);
+  return String(value);
+};
 
 const StudentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { isNavigator } = useAuth();
+  const canViewHistory = isNavigator();
   const [student, setStudent] = useState(null);
   const [notes, setNotes] = useState([]);
   const [meetings, setMeetings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyPage, setHistoryPage] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
 
   useEffect(() => {
     fetchData();
+    setHistory([]);
+    setHistoryTotal(0);
+    setHistoryPage(0);
+    setHistoryError('');
   }, [id]);
+
+  useEffect(() => {
+    if (tab === 2 && canViewHistory && historyPage === 0) {
+      fetchHistory(1);
+    }
+  }, [tab, id, historyPage]);
+
+  const fetchHistory = async (page) => {
+    try {
+      setHistoryLoading(true);
+      setHistoryError('');
+      const res = await usersAPI.getMeetingHistory(id, { page, limit: HISTORY_PAGE_SIZE });
+      setHistory(prev => (page === 1 ? res.data.logs : [...prev, ...res.data.logs]));
+      setHistoryTotal(res.data.pagination.total);
+      setHistoryPage(page);
+    } catch (err) {
+      console.error('Error fetching meeting history:', err);
+      setHistoryError('Failed to load meeting history');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -73,6 +153,7 @@ const StudentDetail = () => {
               <Tabs value={tab} onChange={(e, v) => setTab(v)} sx={{ mb: 2 }}>
                 <Tab label={`Notes (${notes.length})`} />
                 <Tab label={`Meetings (${meetings.length})`} />
+                {canViewHistory && <Tab label="History" />}
               </Tabs>
 
               {tab === 0 && (
@@ -164,6 +245,75 @@ const StudentDetail = () => {
                     ))
                   )}
                 </List>
+              )}
+
+              {tab === 2 && canViewHistory && (
+                <Box>
+                  {historyError && <Alert severity="error" sx={{ mb: 2 }}>{historyError}</Alert>}
+                  {history.length === 0 && historyLoading && (
+                    <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+                  )}
+                  {history.length === 0 && !historyLoading && !historyError && (
+                    <Box textAlign="center" py={4}>
+                      <HistoryIcon sx={{ fontSize: 48, color: 'text.secondary' }} />
+                      <Typography color="text.secondary">No meeting changes recorded yet</Typography>
+                    </Box>
+                  )}
+                  <List>
+                    {history.map(log => {
+                      const action = ACTION_LABELS[log.action] || { label: log.action, color: 'default' };
+                      return (
+                        <ListItem
+                          key={log._id}
+                          button
+                          onClick={() => navigate(`/meetings/${log.meeting}`)}
+                          sx={{ bgcolor: 'background.default', mb: 1, borderRadius: 1, flexDirection: 'column', alignItems: 'flex-start' }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', width: '100%' }}>
+                            <Chip label={action.label} color={action.color} size="small" />
+                            <Typography variant="subtitle2">
+                              {log.performedByName}
+                              <Typography component="span" variant="caption" color="text.secondary">
+                                {' '}({ROLE_LABELS[log.performedByRole] || log.performedByRole})
+                              </Typography>
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                              {formatPacific(log.createdAt)}
+                            </Typography>
+                          </Box>
+                          {log.snapshot && (
+                            <Typography variant="body2" sx={{ mt: 0.5 }}>
+                              {log.snapshot.title || 'Meeting'}
+                              {log.snapshot.startTime && ` — ${formatPacific(log.snapshot.startTime)}`}
+                            </Typography>
+                          )}
+                          {log.changes?.length > 0 && (
+                            <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
+                              {log.changes.map((change, idx) => (
+                                <Typography component="li" variant="body2" color="text.secondary" key={idx}>
+                                  <strong>{FIELD_LABELS[change.field] || change.field}:</strong>{' '}
+                                  {formatChangeValue(change.field, change.from)} → {formatChangeValue(change.field, change.to)}
+                                </Typography>
+                              ))}
+                            </Box>
+                          )}
+                          {log.details && (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: 'pre-wrap' }}>
+                              {log.details}
+                            </Typography>
+                          )}
+                        </ListItem>
+                      );
+                    })}
+                  </List>
+                  {history.length > 0 && history.length < historyTotal && (
+                    <Box textAlign="center">
+                      <Button onClick={() => fetchHistory(historyPage + 1)} disabled={historyLoading}>
+                        {historyLoading ? 'Loading...' : 'Load more'}
+                      </Button>
+                    </Box>
+                  )}
+                </Box>
               )}
             </CardContent>
           </Card>
