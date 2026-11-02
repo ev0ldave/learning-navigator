@@ -2,7 +2,8 @@ const Migration = require('../models/Migration');
 
 // Register one-time migrations here in the order they should run.
 const migrations = [
-  require('./20260809-remove-future-meetings-outside-active-quarter')
+  require('./20260809-remove-future-meetings-outside-active-quarter'),
+  require('./20261101-fix-dst-shifted-recurring-meetings')
 ];
 
 /**
