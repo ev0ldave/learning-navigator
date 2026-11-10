@@ -57,6 +57,9 @@ const MeetingDetail = () => {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [newStatus, setNewStatus] = useState('completed');
   
   // Delete series state
   const [deleteSeriesDialogOpen, setDeleteSeriesDialogOpen] = useState(false);
@@ -171,6 +174,25 @@ const MeetingDetail = () => {
     }
   };
 
+  const handleOpenStatusDialog = () => {
+    setNewStatus(meeting.status === 'completed' ? 'no_show' : 'completed');
+    setStatusDialogOpen(true);
+  };
+
+  const handleChangeStatus = async () => {
+    try {
+      setActionLoading(true);
+      await meetingsAPI.changeStatus(id, newStatus);
+      showSuccess('Meeting status updated');
+      setStatusDialogOpen(false);
+      fetchMeeting();
+    } catch (err) {
+      showError(err.response?.data?.message || 'Failed to change meeting status');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleDeleteSeries = async () => {
     try {
       setActionLoading(true);
@@ -249,6 +271,7 @@ const MeetingDetail = () => {
   const canCancel = ['scheduled', 'confirmed'].includes(meeting.status) && !isPast;
   const canComplete = meeting.status === 'scheduled' && isPast && isNavigator();
   const canMarkNoShow = meeting.status === 'scheduled' && tenMinutesAfterStart && isNavigator();
+  const canChangeStatus = ['completed', 'no_show', 'cancelled'].includes(meeting.status) && isPast && isNavigator();
   const isRecurring = meeting.isRecurring || meeting.recurrence?.parentMeetingId;
   const canDeleteSeries = isRecurring && (isNavigator() || isStudent());
 
@@ -406,6 +429,16 @@ const MeetingDetail = () => {
                     disabled={actionLoading}
                   >
                     Mark as No-Show
+                  </Button>
+                )}
+                {canChangeStatus && (
+                  <Button
+                    variant="outlined"
+                    startIcon={<EditIcon />}
+                    onClick={handleOpenStatusDialog}
+                    disabled={actionLoading}
+                  >
+                    Change Status
                   </Button>
                 )}
                 {/* Edit Recurrence - only for navigators/admins */}
@@ -593,6 +626,37 @@ const MeetingDetail = () => {
             disabled={!noteForm.title || (!noteForm.sharedContent && !noteForm.privateContent) || actionLoading}
           >
             {actionLoading ? <CircularProgress size={24} /> : 'Add Note'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Change Status Dialog */}
+      <Dialog open={statusDialogOpen} onClose={() => setStatusDialogOpen(false)}>
+        <DialogTitle>Change Meeting Status</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 2 }}>
+            Correct the recorded outcome of this meeting. No notifications will be sent.
+          </Typography>
+          <FormControl fullWidth sx={{ mt: 1 }}>
+            <InputLabel>Status</InputLabel>
+            <Select
+              value={newStatus}
+              onChange={(e) => setNewStatus(e.target.value)}
+              label="Status"
+            >
+              <MenuItem value="completed" disabled={meeting.status === 'completed'}>Completed</MenuItem>
+              <MenuItem value="no_show" disabled={meeting.status === 'no_show'}>No Show</MenuItem>
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStatusDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleChangeStatus}
+            variant="contained"
+            disabled={actionLoading || newStatus === meeting.status}
+          >
+            {actionLoading ? <CircularProgress size={24} /> : 'Update Status'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -499,6 +499,50 @@ class MeetingService {
   }
 
   /**
+   * Correct the recorded outcome of a past meeting (e.g. no_show -> completed)
+   */
+  async changePastMeetingStatus(meetingId, status, user) {
+    if (!['completed', 'no_show'].includes(status)) {
+      throw new MeetingValidationError('Status must be completed or no_show');
+    }
+
+    const meeting = await this.meetingRepo.findById(meetingId);
+
+    if (!meeting) {
+      throw new MeetingValidationError('Meeting not found', 404);
+    }
+
+    if (user.role !== 'administrator' &&
+        meeting.navigator.toString() !== user._id.toString()) {
+      throw new MeetingValidationError('Only the assigned navigator can change this meeting status', 403);
+    }
+
+    if (meeting.startTime > new Date()) {
+      throw new MeetingValidationError('Only past meetings can have their status changed');
+    }
+
+    if (meeting.status === status) {
+      throw new MeetingValidationError(`This meeting is already marked as ${status}`);
+    }
+
+    const previousStatus = meeting.status;
+    meeting.status = status;
+    if (previousStatus === 'cancelled') {
+      meeting.cancelledBy = undefined;
+      meeting.cancellationReason = undefined;
+      meeting.cancelledAt = undefined;
+    }
+    await meeting.save();
+
+    await this.audit.logChange(meeting, status, user, {
+      changes: [{ field: 'status', from: previousStatus, to: status }],
+      details: 'Status corrected'
+    });
+
+    return meeting;
+  }
+
+  /**
    * Delete a recurring meeting series
    */
   async deleteRecurringSeries(meetingId, user, scope = 'all', reason = null) {

@@ -374,6 +374,50 @@ router.put('/:id/no-show', isAuthenticated, requireNavigator, async (req, res) =
   }
 });
 
+// @route   PUT /api/meetings/:id/status
+// @desc    Change the status of a past meeting (no notifications sent)
+// @access  Private/Navigator
+router.put('/:id/status',
+  isAuthenticated,
+  requireNavigator,
+  [
+    body('status').isIn(['completed', 'no_show']).withMessage('Status must be completed or no_show')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          errors: errors.array()
+        });
+      }
+
+      const meeting = await meetingService.changePastMeetingStatus(req.params.id, req.body.status, req.user);
+
+      await meeting.populate([
+        { path: 'student', select: 'firstName lastName email profilePicture' },
+        { path: 'navigator', select: 'firstName lastName email profilePicture' }
+      ]);
+
+      res.json({
+        success: true,
+        message: 'Meeting status updated',
+        meeting
+      });
+    } catch (error) {
+      if (error instanceof MeetingValidationError) {
+        return handleServiceError(error, res);
+      }
+      console.error('Change meeting status error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error changing meeting status'
+      });
+    }
+  }
+);
+
 // @route   DELETE /api/meetings/series/:id
 // @desc    Delete a recurring meeting series (all or future only)
 // @access  Private (student, navigator, or admin)

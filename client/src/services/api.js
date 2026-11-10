@@ -83,6 +83,7 @@ export const meetingsAPI = {
   cancel: (id, reason) => api.put(`/meetings/${id}/cancel`, { reason }),
   complete: (id) => api.put(`/meetings/${id}/complete`),
   markNoShow: (id) => api.put(`/meetings/${id}/no-show`),
+  changeStatus: (id, status) => api.put(`/meetings/${id}/status`, { status }),
   deleteSeries: (id, scope = 'all', reason) => 
     api.delete(`/meetings/series/${id}`, { params: { scope }, data: { reason } }),
   updateRecurrence: (id, frequency, endDate) =>

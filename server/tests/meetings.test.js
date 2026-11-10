@@ -719,6 +719,84 @@ describe('Meeting Status', () => {
     expect(repeat.body.message).toContain('already been marked');
     expect(await Notification.countDocuments({ recipient: student._id, type: 'meeting_no_show' })).toBe(1);
   });
+
+  describe('changing status of a past meeting', () => {
+    let navToken;
+    let pastMeeting;
+
+    beforeEach(async () => {
+      const jwt = require('jsonwebtoken');
+      navToken = jwt.sign(
+        { userId: navigator._id },
+        process.env.JWT_SECRET || 'default-jwt-secret',
+        { expiresIn: '7d' }
+      );
+      const startTime = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+      pastMeeting = await Meeting.create({
+        student: student._id,
+        navigator: navigator._id,
+        title: 'Past Meeting',
+        startTime,
+        endTime: new Date(startTime.getTime() + 30 * 60 * 1000),
+        status: 'no_show',
+        createdBy: navigator._id
+      });
+    });
+
+    it('should change no_show to completed and log it without notifying', async () => {
+      const res = await request(app)
+        .put(`/api/meetings/${pastMeeting._id}/status`)
+        .set('Authorization', `Bearer ${navToken}`)
+        .send({ status: 'completed' })
+        .expect(200);
+
+      expect(res.body.meeting.status).toBe('completed');
+
+      const MeetingAuditLog = require('../models/MeetingAuditLog');
+      const log = await MeetingAuditLog.findOne({ meeting: pastMeeting._id, action: 'completed' });
+      expect(log).not.toBeNull();
+      expect(log.changes[0]).toMatchObject({ field: 'status', from: 'no_show', to: 'completed' });
+
+      const Notification = require('../models/Notification');
+      expect(await Notification.countDocuments({ recipient: student._id })).toBe(0);
+    });
+
+    it('should clear cancellation fields when changing a cancelled meeting', async () => {
+      pastMeeting.status = 'cancelled';
+      pastMeeting.cancellationReason = 'Sick';
+      pastMeeting.cancelledBy = student._id;
+      await pastMeeting.save();
+
+      const res = await request(app)
+        .put(`/api/meetings/${pastMeeting._id}/status`)
+        .set('Authorization', `Bearer ${navToken}`)
+        .send({ status: 'completed' })
+        .expect(200);
+
+      expect(res.body.meeting.status).toBe('completed');
+      expect(res.body.meeting.cancellationReason).toBeUndefined();
+    });
+
+    it('should reject future meetings, invalid statuses, and students', async () => {
+      await request(app)
+        .put(`/api/meetings/${meeting._id}/status`)
+        .set('Authorization', `Bearer ${navToken}`)
+        .send({ status: 'completed' })
+        .expect(400);
+
+      await request(app)
+        .put(`/api/meetings/${pastMeeting._id}/status`)
+        .set('Authorization', `Bearer ${navToken}`)
+        .send({ status: 'scheduled' })
+        .expect(400);
+
+      await request(app)
+        .put(`/api/meetings/${pastMeeting._id}/status`)
+        .set('Authorization', `Bearer ${studentToken}`)
+        .send({ status: 'completed' })
+        .expect(403);
+    });
+  });
 });
 
 describe('Meeting Filters', () => {
